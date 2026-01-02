@@ -1,0 +1,128 @@
+[
+  {
+    "AppName": "CAD Server",
+    "RelativePath": "CAD Server\\_Instances\\*\\KPI.Phoenix.CADServerSvc.exe.config",
+    "Settings": {
+      "KPIRMSURL": "http://{cert_name}/Police",
+      "KPIFireRMSURL": "http://{cert_name}/Fire",
+      "DeviceNotifySvrIP": "{hostname}",
+      "DeviceNotificationSvrPort": "5555",
+      "IsSignalRNotifySvc": "TRUE",
+      "SignalRSvcURL": "https://{hostname}:8245",
+      "RptServer_UserName": "{ssrs_user}",
+      "RptServer_Domain": "{ssrs_domain}"
+    }
+  },
+  {
+    "AppName": "PnxFolderWatcher",
+    "RelativePath": "PnxFolderWatcher\\_Instances\\*\\KPI.Phoenix.FolderWatcherSvc.exe.config",
+    "Settings": {
+      "InterfaceID": "IRPT",
+      "FolderWatchPath": "{drive}\\Program Files\\ProPhoenix\\PnxFolderWatcher\\_Instances\\{sub_instance}\\Rpt\\GettxtFile",
+      "ProcessedFilePath": "{drive}\\Program Files\\ProPhoenix\\PnxFolderWatcher\\_Instances\\{sub_instance}\\Rpt\\ProcessedRpt",
+      "KPIAppBasePath": "{drive}\\Program Files\\ProPhoenix\\Police RMS"
+    }
+  },
+  {
+    "AppName": "E911 Server",
+    "RelativePath": "E911 Server\\_Instances\\*\\KPI.Phoenix.E911ServerSvc.exe.config",
+    "Settings": {
+      "CADServer": "{Full_Hostname}",
+      "CADServerPort": "8888",
+      "CADE911ServerPort": "9998"
+    }
+  },
+  {
+    "AppName": "Device Notification Server",
+    "RelativePath": "Phoenix Device Notification\\_Instances\\*\\KPI.Phoenix.DeviceNotificationSvc.exe.config",
+    "Settings": {
+      "DeviceAppMgrSvrIP": "{hostname}",
+      "DeviceAppMgrSvrPort": "5555"
+    }
+  },
+  {
+    "AppName": "External Interface Server",
+    "RelativePath": "External Interface Server\\_Instances\\*\\KPI.Phoenix.ExtInterfaceServerSvc.exe.config",
+    "Settings": {
+      "KPIExtWatchDir": "C:\\Program Files\\ProPhoenix\\Watch",
+      "ESOResendData": "True"
+    }
+  },
+  {
+    "AppName": "NCIC Server",
+    "RelativePath": "NCIC Server\\_Instances\\*\\KPI.Phoenix.NCICServerSvc.exe.config",
+    "Settings": {
+      "NCICStateServerIP": "{hostname}",
+      "NCICStateServerPort": "5858",
+      "InterfaceName": "NCIC"
+    }
+  },
+  {
+    "AppName": "NCIC State Server",
+    "RelativePath": "NCIC State Server\\_Instances\\*\\KPI.Phoenix.NCICStateServerSvc.exe.config",
+    "Settings": {
+      "NCICServerPort": "6667",
+      "NCICStateServerIP": "{hostname}",
+      "NCICStateServerPort": "5858"
+    }
+  },
+  {
+    "AppName": "Phoenix CAD Live Streaming Service",
+    "RelativePath": "Phoenix CAD Live Streaming Service\\_Instances\\*\\KPI.Phoenix.LiveStreaming.AzureServerSvc.exe.config",
+    "Settings": {
+      "CADServerIP": "{hostname}",
+      "CADServerPort": "8888"
+    }
+  },
+  {
+    "AppName": "Report Server",
+    "RelativePath": "Report Server\\web.config",
+    "Settings": {
+      "RptServer_UserName": "{ssrs_user}",
+      "RptServer_Domain": "{ssrs_domain}"
+    }
+  },
+   {
+    "AppName": "Job Server",
+    "RelativePath": "Job Server\\_Instances\\*\\KPI.Phoenix.JobSvc.exe.config",
+    "Settings": {
+      "RptServer_UserName": "{ssrs_user}",
+      "RptServer_Domain": "{ssrs_domain}"
+    }
+  },
+  {
+    "AppName": "Police RMS",
+    "RelativePath": "Police RMS\\web.config",
+    "Settings": {
+      "PnxPdfService": "https://{cert_name}/Phoenixpdfservice",
+      "CSPSignatureService": "https://eremote.prophoenix.com/esign/api",
+      "AILicenseService": "https://crmws.prophoenix.com/PNXAIAPI"
+    }
+  },
+  {
+    "AppName": "Fire RMS",
+    "RelativePath": "Fire RMS\\web.config",
+    "Settings": {
+      "PnxPdfService": "https://{cert_name}/Phoenixpdfservice",
+      "CSPSignatureService": "https://eremote.prophoenix.com/esign/api"
+    }
+  },
+  {
+    "AppName": "Internal Affairs",
+    "RelativePath": "Internal Affairs\\web.config",
+    "Settings": {
+      "PnxPdfService": "https://{cert_name}/Phoenixpdfservice",
+      "CSPSignatureService": "https://eremote.prophoenix.com/esign/api"
+    }
+  },
+  {
+    "AppName": "WebService",
+    "RelativePath": "WebService\\web.config",
+    "Settings": {
+      "xslPath": "{ReportServerPath}",
+      "DeviceNotifySvrIP": "{hostname}",
+      "DeviceNotificationSvrPort": "5555",
+      "IsWCFChannelEnabled": "TRUE"
+    }
+  }
+]

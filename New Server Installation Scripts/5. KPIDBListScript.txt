@@ -1,0 +1,123 @@
+-- Step 1: Declare variables
+DECLARE @AgencyID VARCHAR(50);
+DECLARE @DBConnStr NVARCHAR(MAX);
+DECLARE @IPAddress NVARCHAR(100) = 'NJ-RWB-SVR-01'; -- 🔁 Set the CAD/NCIC -  Hostname/IP Address
+
+-- Access URLs -- 🔁 Set the Required Urls here
+DECLARE @AccessURL1 NVARCHAR(100) = 'LocalHost';
+DECLARE @AccessURL2 NVARCHAR(100) = '10.57.3.94';
+DECLARE @AccessURL3 NVARCHAR(100) = 'nj-rwb-svr-01.prophoenix.com';
+DECLARE @AccessURL4 NVARCHAR(100) = 'nj-rwb-svr-01';
+
+-- Step 2: Fetch Agency ID and set DB connection string
+SELECT @AgencyID = AgencyID
+FROM dbo.PRVAgency
+WHERE AgencyName = 'NJRWBSVR01'; -- 🔁 set the Agency name created
+
+-- 🔁 Set the DBConnStr from the Provision manager Web.Config File
+SET @DBConnStr = 'Jir3yI1RDNWWp+asw+NMuSALIxPCtk9hR3CJeLoPc6eisGJC7jkzvNgcVZZOPJ7f3vfatR3onlmIWZubaX6j3ZrjiiDP6g129safGbzZ6lL+6X1KJDYMsQ==';
+
+--- Input Prompt ends here
+
+-- Step 3: Insert into dbo.KPIDBList
+INSERT INTO dbo.KPIDBList (
+    DBName, SeqNo, DBType, DBConnStr, ProductID,
+    CADIPAddr, CADPort, NCICIPAddr, NCICPort, RptConnStr,
+    IsDBLink, IsMain, VehLogConnStr, ASConnStr, AgencyID,
+    FriendlyName, RunMode, IsActive, InActiveDttm, CreatedBy,
+    CreatedDttm, ModifiedBy, ModifiedDttm, ArchConnStr,
+    JurisName, JurisAlias, TenantID, IsEncrypted
+)
+VALUES
+-- Police
+('Police Live', 1, 'MSSQL', @DBConnStr, 1,
+ @IPAddress, 8888, @IPAddress, 5858, NULL,
+ NULL, NULL, NULL, @DBConnStr, @AgencyID,
+ 'Police Live', 1, 1, NULL, @AgencyID,
+ GETDATE(), @AgencyID, GETDATE(), NULL,
+ NULL, NULL, NULL, 1),
+
+('Police Training', 1, 'MSSQL', @DBConnStr, 1,
+ @IPAddress, 8887, @IPAddress, 5859, NULL,
+ NULL, NULL, NULL, @DBConnStr, @AgencyID,
+ 'Police Training', 2, 1, NULL, @AgencyID,
+ GETDATE(), @AgencyID, GETDATE(), NULL,
+ NULL, NULL, NULL, 1),
+
+-- Fire (No CADIP/NCIC)
+('Fire Live', 1, 'MSSQL', @DBConnStr, 2,
+ NULL, NULL, NULL, NULL, NULL,
+ NULL, NULL, NULL, @DBConnStr, @AgencyID,
+ 'Fire Live', 1, 1, NULL, @AgencyID,
+ GETDATE(), @AgencyID, GETDATE(), NULL,
+ NULL, NULL, NULL, 1),
+
+('Fire Training', 1, 'MSSQL', @DBConnStr, 2,
+ NULL, NULL, NULL, NULL, NULL,
+ NULL, NULL, NULL, @DBConnStr, @AgencyID,
+ 'Fire Training', 2, 1, NULL, @AgencyID,
+ GETDATE(), @AgencyID, GETDATE(), NULL,
+ NULL, NULL, NULL, 1),
+
+-- IA (No CADIP, but include NCIC)
+('IA Live', 1, 'MSSQL', @DBConnStr, 7,
+ NULL, NULL, @IPAddress, 5858, NULL,
+ NULL, NULL, NULL, @DBConnStr, @AgencyID,
+ 'IA Live', 1, 1, NULL, @AgencyID,
+ GETDATE(), @AgencyID, GETDATE(), NULL,
+ NULL, NULL, NULL, 1),
+
+('IA Training', 1, 'MSSQL', @DBConnStr, 7,
+ NULL, NULL, @IPAddress, 5859, NULL,
+ NULL, NULL, NULL, @DBConnStr, @AgencyID,
+ 'IA Training', 2, 1, NULL, @AgencyID,
+ GETDATE(), @AgencyID, GETDATE(), NULL,
+ NULL, NULL, NULL, 1),
+
+-- CAD (Full CAD + NCIC)
+('CAD Live', 1, 'MSSQL', @DBConnStr, 4,
+ @IPAddress, 8888, @IPAddress, 5858, NULL,
+ NULL, NULL, NULL, @DBConnStr, @AgencyID,
+ 'CAD Live', 1, 1, NULL, @AgencyID,
+ GETDATE(), @AgencyID, GETDATE(), NULL,
+ NULL, NULL, NULL, 1),
+
+('CAD Training', 1, 'MSSQL', @DBConnStr, 4,
+ @IPAddress, 8887, @IPAddress, 5859, NULL,
+ NULL, NULL, NULL, @DBConnStr, @AgencyID,
+ 'CAD Training', 2, 1, NULL, @AgencyID,
+ GETDATE(), @AgencyID, GETDATE(), NULL,
+ NULL, NULL, NULL, 1);
+
+-- Step 4: Insert into KPIDBAccessURL (excluding CAD)
+INSERT INTO dbo.KPIDBAccessURL (AgencyID, DBName, AccessURL)
+VALUES
+-- Police
+(@AgencyID, 'Police Live', @AccessURL1),
+(@AgencyID, 'Police Live', @AccessURL2),
+(@AgencyID, 'Police Live', @AccessURL3),
+(@AgencyID, 'Police Live', @AccessURL4),
+(@AgencyID, 'Police Training', @AccessURL1),
+(@AgencyID, 'Police Training', @AccessURL2),
+(@AgencyID, 'Police Training', @AccessURL3),
+(@AgencyID, 'Police Training', @AccessURL4),
+
+-- Fire
+(@AgencyID, 'Fire Live', @AccessURL1),
+(@AgencyID, 'Fire Live', @AccessURL2),
+(@AgencyID, 'Fire Live', @AccessURL3),
+(@AgencyID, 'Fire Live', @AccessURL4),
+(@AgencyID, 'Fire Training', @AccessURL1),
+(@AgencyID, 'Fire Training', @AccessURL2),
+(@AgencyID, 'Fire Training', @AccessURL3),
+(@AgencyID, 'Fire Training', @AccessURL4),
+
+-- IA
+(@AgencyID, 'IA Live', @AccessURL1),
+(@AgencyID, 'IA Live', @AccessURL2),
+(@AgencyID, 'IA Live', @AccessURL3),
+(@AgencyID, 'IA Live', @AccessURL4),
+(@AgencyID, 'IA Training', @AccessURL1),
+(@AgencyID, 'IA Training', @AccessURL2),
+(@AgencyID, 'IA Training', @AccessURL3),
+(@AgencyID, 'IA Training', @AccessURL4);

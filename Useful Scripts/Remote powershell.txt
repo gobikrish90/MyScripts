@@ -1,0 +1,25 @@
+Enable-PSRemoting -Force
+
+ping HC-ETSB-PHOENIX
+Test-NetConnection HC-ETSB-PHOENIX.HCETSB.local -Port 5985   # WinRM HTTP
+
+# Allow connecting to that remote host using NTLM
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "HC-ETSB-PHOENIX" -Force
+
+# If you only know IP, or want both
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "HC-ETSB-PHOENIX,10.137.10.30" -Force
+
+
+# 1. Ask for customer server credentials
+$cred = Get-Credential   # e.g. CUSTOMER\PhoenixAdmin
+
+# 2. Create a PSSession to the remote server
+$session = New-PSSession -ComputerName HC-ETSB-PHOENIX `
+                         -Credential $cred `
+                         -Authentication Negotiate
+
+# 3. Check if the session is created successfully
+$session
+
+
+Invoke-Command -Session $session -FilePath "D:\PnxTemp\Useful Script\Local SSL Certificate creation.ps1"

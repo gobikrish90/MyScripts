@@ -1,0 +1,46 @@
+Server: CH-STGD-SVR-01
+Database: PoliceMJTest
+SAUser: PnxMgmt
+SAPassword: DB@~PnxC0nf
+
+#E-ESRI,G-Google Map,H-HERE Map
+
+512 = G
+519 = 
+527 = G
+537 = gme-chenosasystemscorporation
+555 = G
+556 = G
+
+
+#H-HERE Map
+
+512 =
+519 =
+527 =
+537 =
+546 =
+547 =
+548 =
+555 =
+556 =
+
+
+
+#G-Google Map
+#512 = Default Map 
+#519 = Google Map Key
+#527 = Geo Coding Service Type
+#555 = WDA Default Map
+#556 = Default Map for CAD
+
+#H-HERE Map
+#512 = Default Map 
+#519 = Map Key
+#527 = Geo Coding Service Type
+#537 = Google Map Client ID
+#546 = Replace Google Maps with HERE Maps
+#547 = HERE Map App ID
+#548 = HERE Map App Code
+#555 = WDA Default Map
+#556 = Default Map for CAD

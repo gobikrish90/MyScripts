@@ -1,0 +1,44 @@
+Server: CH-STGD-SVR-01
+Database: PoliceMJTest
+SAUser: PnxMgmt
+SAPassword: DB@~PnxC0nf
+
+#Police/Fire/IA RMS
+
+13 =
+16 =
+22 =
+29 =
+36 =
+39 =
+40 =
+203 =
+204 =
+205 =
+206 =
+207 =
+220 =
+221 =
+231 = 1
+630 =
+1914 =
+2658 =
+
+#13 = Custom reports storage folder
+#16 = RMS Base URL
+#22 = Custom 'Screen Help' Documentation Path
+#29 = Attachment(s) - Bulk Storage File Server Base Folder
+#36 = Report server URL
+#39 = Attachment(s) - Bulk Upload FTP Physical Path
+#40 = Reporting Service Web Service Virtual Directory
+#203 = SMTP Mail Server
+#204 = SMTP Server User
+#205 = SMTP Server Password
+#206 = From Mail ID
+#207 = Support Mail ID
+#220 = System Web Service URL
+#221 = Notification 'From' E-mail Address
+#231 = 1-Database,2-Network (File Storage Options)
+#630 = NIST WebService URL 
+#1914 = KGIS WebService URL
+#2658 = WDA V2 Report Entry API URL

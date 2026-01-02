@@ -1,0 +1,6 @@
+echo Stopping all services...
+ 
+:: Run PowerShell command to stop services
+powershell -Command "Get-Service -Name 'Phoenix*' | Where-Object { $_.Status -eq 'Running' } | ForEach-Object { Stop-Service -Name $_.Name -Force }"
+ 
+echo All Phoenix services have been stopped.
