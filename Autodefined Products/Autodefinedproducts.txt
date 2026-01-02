@@ -1,0 +1,227 @@
+﻿<#
+.SYNOPSIS
+    ProPhoenix Multi-Instance Generator (Install + UpdateInstance).
+    1. Scans ALL drives for 'Appreg_main.xml'.
+    2. Maps products for "INSTALL" command.
+    3. Filters specific products for "UPDATEINSTANCE" command.
+    4. Generates a comprehensive Bat file.
+#>
+
+$ErrorActionPreference = "Continue" 
+
+# --- DEFINITIONS ---
+# List of products that act as Windows Services (for UPDATEINSTANCE)
+$ServiceProductList = @(
+    "JobServer", "TraCSServer", "VideoServer", "FingerPrintServer", "EmailWatcher", 
+    "CADServer", "CADNLBServer", "CAD2CADTellusServer", "E911Server", "ZetronServer", 
+    "ExternalInterface", "GPSServer", "NCICServer", "NCICStateServer", "FTPServer", 
+    "LocutionCADVoiceServer", "DeviceNotification", "StreamingNotification", "ReportService", 
+    "FolderWatcher", "DocsServer", "PhoenixTonerServer", "PhoenixAlertApp", "PhoenixTExt2Dispatch", "PHOENIXAIWATCHERSERVICE", "PHOENIXJOBSVRV2"
+)
+
+# Configuration: Product Mappings
+$RawMappingData = @"
+"PoliceRms=%PnxInstallPath%\Police RMS" "FireRms=%PnxInstallPath%\Fire RMS" "JobServer=%PnxInstallPath%\Job Server" "TraCSServer=%PnxInstallPath%\TraCS Server" "VideoServer=%PnxInstallPath%\Video Server" "FingerPrintServer=%PnxInstallPath%\Finger Print Server" "ReportServer=%PnxInstallPath%\Report Server" "ReportService=%PnxInstallPath%\Report Service" "PhoenixWebService=%PnxInstallPath%\WebService" "HazmatGuide=%PnxInstallPath%\User Docs" "FireWebService=%PnxInstallPath%\Fire WebService" "ProvisionManager=%PnxInstallPath%\Provision Manager" "FolderWatcher=%PnxInstallPath%\PnxFolderWatcher" "InternalAffair=%PnxInstallPath%\PhoenixIA" "NIBRS=%PnxInstallPath%\NIBRSInterface" "EmailWatcher=%PnxInstallPath%\Phoenix Email Watcher" "PoliceF1HelpDocs=%PnxInstallPath%\Police RMS\UserDocs" "FireF1HelpDocs=%PnxInstallPath%\Fire RMS\UserDocs" "IAF1HelpDocs=%PnxInstallPath%\PhoenixIA\UserDocs"
+"CADServer=%PnxInstallPath%\CAD Server" "CADNLBServer=%PnxInstallPath%\CAD NLB Message Server" "E911Server=%PnxInstallPath%\E911 Server" "GPSServer=%PnxInstallPath%\GPS Server" "ZetronServer=%PnxInstallPath%\CAD Zetron Server" "TonerWIServer=%PnxInstallPath%\Toner WI Server" "ExternalInterface=%PnxInstallPath%\External Interface Server" "NCICServer=%PnxInstallPath%\NCIC Server" "NCICStateServer=%PnxInstallPath%\NCIC State Server" "KGISPDServer=%PnxInstallPath%\KGIS PD WebService" "KGISCentralServer=%PnxInstallPath%\KGIS Central WebService" "LocutionCADVoiceServer=%PnxInstallPath%\Locution CAD Voice Server" "DeviceNotification=%PnxInstallPath%\Phoenix Device Notification" "PnxWDAAppWebService=%PnxInstallPath%\WDA App webservice" "StreamingNotification=%PnxInstallPath%\Streaming Notification" "PhoenixAlertApp=%PnxInstallPath%\Alert App" "PhoenixTExt2Dispatch=%PnxInstallPath%\Text2Dispatch" "CAD2CADTellusServer=%PnxInstallPath%\CAD2CAD Tellus Server" "ReportWriterAPI=%PnxInstallPath%\Phoenix Report Writer API"
+"CitizenServices=%PnxInstallPath%\Citizen Services Link" "InmateLookup=%PnxInstallPath%\Inmate Lookup" "WIJIS=%PnxInstallPath%\WIJIS" "SWISS=%PnxInstallPath%\SWISS" "CJIN=%PnxInstallPath%\CJIN Integration Service" "NDEX=%PnxInstallPath%\WIJIS NDEX WebService" "FTPServer=%PnxInstallPath%\FTP Server" "CRM=%PnxInstallPath%\CRM" "InmateLocator=%PnxInstallPath%\Inmate Locator" "FireCSPWCF=%PnxInstallPath%\FireCSPhoenixLink" "PoliceCSPWebAPI=%PnxInstallPath%\CitizenServices" "FireCSPWebsite=%PnxInstallPath%\FireCitizenServices" "ADRWebService=%PnxInstallPath%\ADRCollectionRepositoryWS" "WhatsNewWebService=%PnxInstallPath%\WhatsNewWebService" "DocsServer=%PnxInstallPath%\DocsServer" "PhoenixTonerServer=%PnxInstallPath%\Toner Server" "JailCellCheck=%PnxInstallPath%\Jail Cell Check App Service" "ScenePD=%PnxInstallPath%\PhoenixScenePD" "PDFService=%PnxInstallPath%\PhoenixPDFService" "DBUtility=%PnxInstallPath%\Database Utility"
+"StageCADClient=%PnxInstallPath%\FTP\CAD Client Stage" "StageWDA=%PnxInstallPath%\FTP\WDA Stage" "StagePrintClient=%PnxInstallPath%\FTP\Print Server Stage" "StageClientAppManager=%PnxInstallPath%\FTP\Client Application Manager Stage" "StageFingerPrintClient=%PnxInstallPath%\FTP\Finger Print Client Stage" "StageIDScannerClient=%PnxInstallPath%\FTP\ID Scanner Stage" "StageStationKIOSKRFIDClient=%PnxInstallPath%\FTP\Station KIOSK RFID Client Stage" "StageRFIDClient=%PnxInstallPath%\FTP\RFID Client Stage" "StageAVLRecorder=%PnxInstallPath%\FTP\AVL Recorder Stage" "StageInOutClient=%PnxInstallPath%\FTP\In Out Client Stage" "StageZetronClient=%PnxInstallPath%\FTP\Zetron Client Stage" "StagePhoenixDashboard=%PnxInstallPath%\FTP\Phoenix Dashboard Stage" "StageMobileInspectionApp=%PnxInstallPath%\FTP\Mobile Inspection App Stage" "PHOENIXJOBSVRV2=%PnxInstallPath%\Job Server V2" "PHOENIXAIWATCHERSERVICE=%PnxInstallPath%\Phoenix AI Watcher" "PNXDIAGRAM=%PnxInstallPath%\PNXDiagram" "PNXDIAGRAMAPI=%PnxInstallPath%\PNXDiagramAPI" "INSPECTIONAPI=%PnxInstallPath%\Phoenix Inspection API" "FIRECSPCONVERSION=%PnxInstallPath%\Fire CSP Conversion" "CAMERASERVER=%PnxInstallPath%\Phoenix Camera Server" "PHOENIXPAWN=%PnxInstallPath%\Phoenix Pawn" "StagePhoenixWDAV2=%PnxInstallPath%\FTP\Phoenix WDA V2 Stage"
+"@
+
+Clear-Host
+Write-Host "==============================================" -ForegroundColor Yellow
+Write-Host "   PROPHOENIX INSTALL + INSTANCE UPDATER" -ForegroundColor Yellow
+Write-Host "==============================================" -ForegroundColor Yellow
+
+# --- 1. FIND ALL INSTANCES ---
+$FileName = "Appreg_main.xml"
+Write-Host "`n[STEP 1] Scanning ALL drives for $FileName..." -ForegroundColor Cyan
+
+$PossibleParents = @(
+    "ProPhoenix\Server Application Manager",
+    "Program Files (x86)\ProPhoenix\Server Application Manager",
+    "Program Files\ProPhoenix\Server Application Manager"
+)
+$Drives = Get-PSDrive -PSProvider FileSystem
+$FoundFiles = @()
+
+foreach ($d in $Drives) {
+    foreach ($folder in $PossibleParents) {
+        $TestPath = Join-Path -Path $d.Root -ChildPath $folder
+        $FullFilePath = Join-Path -Path $TestPath -ChildPath $FileName
+        Write-Host "  Checking: $FullFilePath" -ForegroundColor DarkGray
+        if (Test-Path $FullFilePath) {
+            $FoundFiles += $FullFilePath
+            Write-Host "  [SUCCESS] Found: $FullFilePath" -ForegroundColor Green
+        }
+    }
+}
+
+if ($FoundFiles.Count -eq 0) {
+    Write-Error "No instances of '$FileName' found."
+    Read-Host "Press ENTER to exit..."; exit
+}
+
+# --- 2. PROCESS EACH INSTANCE ---
+$InstanceCount = 1
+
+foreach ($FoundPath in $FoundFiles) {
+    Write-Host "`n--------------------------------------------------" -ForegroundColor Yellow
+    Write-Host " PROCESSING INSTANCE #$InstanceCount" -ForegroundColor Yellow
+    Write-Host " Source: $FoundPath" -ForegroundColor Gray
+    Write-Host "--------------------------------------------------" -ForegroundColor Yellow
+    
+    $InstallDrive = (Split-Path $FoundPath -Qualifier)
+    $AppMgrFolder = (Split-Path $FoundPath -Parent)
+    
+    # --- LOGGING SETUP ---
+    $LogDir = Join-Path -Path $AppMgrFolder -ChildPath "PnxLog\PrintLog"
+    if (-not (Test-Path $LogDir)) { try { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null } catch {} }
+    if (-not (Test-Path $LogDir)) { $LogDir = $env:TEMP }
+    $LogFileName = "InstallGen_Inst${InstanceCount}_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    $LogFile = Join-Path -Path $LogDir -ChildPath $LogFileName
+
+    $LogMsg = {
+        param([string]$Msg, [string]$Lvl="INFO", [string]$Clr="White")
+        $TS = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Add-Content -Path $LogFile -Value "[$TS] [$Lvl] $Msg"
+        if ($Lvl -eq "ERROR") { Write-Host $Msg -ForegroundColor Red }
+        elseif ($Lvl -eq "SUCCESS") { Write-Host $Msg -ForegroundColor Green }
+        elseif ($Lvl -eq "WARN") { Write-Host $Msg -ForegroundColor Yellow }
+        else { Write-Host $Msg -ForegroundColor $Clr }
+    }
+    & $LogMsg -Msg "Logging started: $LogFile" -Clr Cyan
+
+    # --- BACKUP ---
+    Write-Host "`n[STEP 2] Backing up Configuration..." -ForegroundColor Cyan
+    $BackupFile = "$FoundPath.$(Get-Date -Format 'yyyyMMdd_HHmmss').bak"
+    try {
+        Copy-Item -Path $FoundPath -Destination $BackupFile -ErrorAction Stop
+        & $LogMsg -Msg "Backup created: $BackupFile" -Lvl SUCCESS
+    } catch {
+        & $LogMsg -Msg "Backup Failed: $_" -Lvl ERROR; continue
+    }
+
+    # --- PREPARE TEMP ---
+    Write-Host "`n[STEP 3] Preparing PnxTemp..." -ForegroundColor Cyan
+    $PnxTempPath = Join-Path -Path (Split-Path $AppMgrFolder -Parent) -ChildPath "PnxTemp"
+    if (-not (Test-Path $PnxTempPath)) {
+        try { New-Item -ItemType Directory -Path $PnxTempPath -Force | Out-Null } catch {}
+    }
+
+    # --- PARSE MAP ---
+    Write-Host "`n[STEP 4] Processing Product Map..." -ForegroundColor Cyan
+    $PathMap = @{}
+    $Regex = '"([^"]+)=%PnxInstallPath%\\([^"]+)"'
+    foreach ($m in [regex]::Matches($RawMappingData, $Regex)) {
+        $ShortID = $m.Groups[1].Value
+        $Suffix = $m.Groups[2].Value.Replace("/", "\").Trim()
+        if (-not $PathMap.ContainsKey($Suffix)) { $PathMap[$Suffix] = $ShortID }
+    }
+    & $LogMsg -Msg "Loaded definitions." -Clr Gray
+
+    # --- ANALYZE XML ---
+    Write-Host "`n[STEP 5] Analyzing Products..." -ForegroundColor Cyan
+    try { [xml]$xmlData = Get-Content $FoundPath } catch { & $LogMsg -Msg "Invalid XML" -Lvl ERROR; continue }
+    
+    # We need TWO lists now: one for INSTALL, one for UPDATEINSTANCE
+    $InstallArgs = new-object System.Collections.Generic.List[string]
+    $UpdateArgs  = new-object System.Collections.Generic.List[string]
+    
+    $InstallArgs.Add('"INSTALL"')
+    $UpdateArgs.Add('"UPDATEINSTANCE"')
+
+    if ($xmlData.PhoenixApplications.AppReg) {
+        foreach ($app in $xmlData.PhoenixApplications.AppReg) {
+            $Ver = $app.CurrentVersion
+            $FPath = $app.AppPath.Replace("/", "\").Trim()
+
+            if ($Ver -ne "0.0.0.0") {
+                $BestID = $null; $BestLen = 0
+                foreach ($k in $PathMap.Keys) {
+                    if ($FPath.EndsWith($k, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        if ($k.Length -gt $BestLen) { $BestID = $PathMap[$k]; $BestLen = $k.Length }
+                    }
+                }
+                
+                if ($BestID) {
+                    # 1. Always add to INSTALL list
+                    $InstallArgs.Add("`"$BestID`"")
+                    $LogStr = "Included: $($app.AppName) -> $BestID"
+                    
+                    # 2. Check if it is a Windows Service for UPDATEINSTANCE
+                    if ($ServiceProductList -contains $BestID) {
+                        $UpdateArgs.Add("`"$BestID`"")
+                        $LogStr += " [Services Updated]"
+                    }
+                    
+                    & $LogMsg -Msg $LogStr -Lvl SUCCESS
+                } else {
+                    & $LogMsg -Msg "Skipped: $($app.AppName)" -Lvl WARN
+                }
+            }
+        }
+    }
+
+    # --- GENERATE BAT ---
+    Write-Host "`n[STEP 6] Saving Output..." -ForegroundColor Cyan
+    
+    # Create the command lines
+    $InstallLine = $InstallArgs -join " "
+    $UpdateLine  = $UpdateArgs -join " "
+    
+    # Incremental Filename
+    $BaseName = "Install_Auto"; $Ext = ".bat"; $Counter = 0
+    $FinalName = "$BaseName$Ext"
+    $OutputBatFile = Join-Path -Path $PnxTempPath -ChildPath $FinalName
+    while (Test-Path $OutputBatFile) {
+        $Counter++
+        $FinalName = "${BaseName}${Counter}${Ext}"
+        $OutputBatFile = Join-Path -Path $PnxTempPath -ChildPath $FinalName
+    }
+
+    # Build CD Block
+    $PathParts = $AppMgrFolder.Split('\')
+    $CdBlock = "$InstallDrive`r`ncd ..\..\`r`n"
+    for ($i = 1; $i -lt $PathParts.Count; $i++) { if ($PathParts[$i]) { $CdBlock += "cd `"$($PathParts[$i])`"`r`n" } }
+
+    # Construct Batch Content
+    # We only write the UPDATEINSTANCE line if $UpdateArgs has more than just the command itself (count > 1)
+    $UpdateCmd = ""
+    if ($UpdateArgs.Count -gt 1) {
+        $UpdateCmd = "::Script - Updating Windows Service Instance`r`n%AppMgrExePath%\PnxAppMgr.exe $UpdateLine`r`n"
+    }
+
+    $BatchContent = @"
+$CdBlock
+@echo off
+SET AppMgrExePath="$AppMgrFolder"
+
+:loopSelf
+tasklist /fi "imagename eq PnxAppMgr.exe" |find ":" > nul
+if "%ERRORLEVEL%"=="1" goto loopSelf
+
+::Script - Installing products
+%AppMgrExePath%\PnxAppMgr.exe $InstallLine
+
+$UpdateCmd
+::Show Instances
+%AppMgrExePath%\PnxAppMgr.exe "SHOWINSTANCES"
+
+Pause
+::End of Script::
+"@
+
+    try {
+        Set-Content -Path $OutputBatFile -Value $BatchContent -Encoding ASCII
+        & $LogMsg -Msg "New Batch file saved to: $OutputBatFile" -Lvl SUCCESS
+    } catch {
+        & $LogMsg -Msg "Failed to write BAT file" -Lvl ERROR
+    }
+
+    $InstanceCount++
+}
+
+Write-Host "`n==============================================" -ForegroundColor Yellow
+Write-Host "   ALL INSTANCES PROCESSED" -ForegroundColor Yellow
+Write-Host "==============================================" -ForegroundColor Yellow
+Read-Host "Press ENTER to close..."
