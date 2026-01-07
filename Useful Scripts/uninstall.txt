@@ -1,0 +1,81 @@
+# Define the comprehensive list of applications based on your new image
+$TargetApps = @(
+    # .NET Core Server Hosting Bundles
+    "Microsoft .NET Core 2.0.8 - Windows Server Hosting*",
+    "Microsoft .NET Core 3.1.15 - Windows Server Hosting*",
+
+    # .NET Core Runtimes (Older versions)
+    "Microsoft .NET Core Runtime - 2.0.7*",
+
+    # .NET Core SDKs
+    "Microsoft .NET Core SDK 2.1.403*",
+    "Microsoft .NET Core SDK 3.1.101*",
+    "Microsoft .NET Core SDK 3.1.108*",
+
+    # .NET 5.0 Runtimes and Frameworks
+    "Microsoft .NET Runtime - 5.0.17*",
+    "Microsoft ASP.NET Core 2.1.4 - Shared Framework*",
+    "Microsoft ASP.NET Core 5.0.17 - Shared Framework*",
+
+    # Access Database Engine
+    "Microsoft Access database engine 2010*"
+)
+
+# Registry paths to search (64-bit and 32-bit)
+$RegistryPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+)
+
+Write-Host "Starting search for target applications..." -ForegroundColor Cyan
+
+foreach ($Path in $RegistryPaths) {
+    $Keys = Get-ChildItem -Path $Path -ErrorAction SilentlyContinue
+
+    foreach ($Key in $Keys) {
+        $DisplayName = $Key.GetValue("DisplayName")
+        $UninstallString = $Key.GetValue("UninstallString")
+        $QuietUninstallString = $Key.GetValue("QuietUninstallString")
+        $PSChildName = $Key.PSChildName # The Product Code / GUID
+
+        foreach ($App in $TargetApps) {
+            if ($DisplayName -like $App) {
+                Write-Host "Found Match: $DisplayName" -ForegroundColor Yellow
+                
+                # OPTION 1: MSI Installer (Standard for most Microsoft Apps)
+                if ($PSChildName -match '{[A-F0-9-]{36}}') {
+                    Write-Host "  -> Uninstalling via MSI ($PSChildName)..."
+                    $Args = "/x $PSChildName /qn /norestart"
+                    Start-Process "msiexec.exe" -ArgumentList $Args -Wait -NoNewWindow
+                    Write-Host "  -> Done." -ForegroundColor Green
+                }
+                # OPTION 2: Quiet Uninstall String (if available)
+                elseif ($QuietUninstallString) {
+                    Write-Host "  -> Executing Quiet Uninstall..."
+                    # Extract exe and args
+                    if ($QuietUninstallString -match '^"([^"]+)"\s+(.*)$') {
+                        $Exe = $Matches[1]
+                        $Args = $Matches[2]
+                    } else {
+                        $Exe = $QuietUninstallString.Split(' ')[0]
+                        $Args = $QuietUninstallString.Substring($Exe.Length).Trim()
+                    }
+                    Start-Process $Exe -ArgumentList $Args -Wait -NoNewWindow
+                    Write-Host "  -> Done." -ForegroundColor Green
+                }
+                # OPTION 3: Standard Uninstall String (Warning: Might allow popups)
+                else {
+                    Write-Host "  -> No silent option found. Trying standard uninstall..."
+                    # Many .NET installers accept /quiet or /uninstall /quiet even if not listed in registry
+                    if ($UninstallString -match "exe") {
+                         $Exe = $UninstallString.Replace('"', '')
+                         Start-Process $Exe -ArgumentList "/uninstall /quiet /norestart" -Wait -NoNewWindow
+                    }
+                }
+            }
+        }
+    }
+}
+
+Write-Host "----------------------------------------------"
+Write-Host "Cleanup complete." -ForegroundColor Cyan
