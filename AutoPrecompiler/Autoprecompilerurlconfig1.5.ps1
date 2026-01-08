@@ -146,20 +146,4 @@ foreach ($item in $results) {
 }
 $xml.Save($configPath)
 Write-Host "Config updated." -ForegroundColor Cyan
-
-# =============================================================================
-# STEP 5: LAUNCH TOOL (SINGLE INSTANCE)
-# =============================================================================
-Write-Host "`nStep 5: Launching Tool..." -ForegroundColor Cyan
-
-$exePath = Join-Path $extractPath "PnxPrecompilerWin.exe"
-
-if (-not (Test-Path $exePath)) {
-    Write-Host "Error: Executable not found at $exePath" -ForegroundColor Red
-    return
-}
-
-Write-Host "Launching PnxPrecompilerWin..." -ForegroundColor Green
-Start-Process $exePath
-
 Write-Host "Done!" -ForegroundColor Green

@@ -1,9 +1,9 @@
 ﻿# ======================================================================
-#  ProPhoenix Auto Database Sync Utility - v1.8 (Installation Team)
+#  ProPhoenix Auto Database Sync Utility - v2.0 ( Installation Team )
 # ======================================================================
 
 Clear-Host
-Write-Host "===== ProPhoenix Auto Database Sync Utility - v1.8 (Installation Team) =====" -ForegroundColor Cyan
+Write-Host "===== ProPhoenix Auto Database Sync Utility - v2.0 ( Installation Team )l =====" -ForegroundColor Cyan
 
 # ----------------------------------------------------------------------
 # CONFIGURATION & PATHS
@@ -66,10 +66,86 @@ function Get-PhoenixDBs {
         return $dbList
     }
     catch {
-        Write-Host "❌ LOGIN FAILED: $($_.Exception.Message)" -ForegroundColor Red
+        $errMsg = $_.Exception.Message
+        Write-Host "❌ LOGIN FAILED: $errMsg" -ForegroundColor Red
+        
+        if ($errMsg -match "error: 40" -or $errMsg -match "Named Pipes Provider") {
+            Write-Host "   💡 HINT: 'Error 40' usually means the Server Name is wrong or unreachable." -ForegroundColor Yellow
+            Write-Host "      1. Did you forget the instance? (Try: ServerName\InstanceName)" -ForegroundColor Yellow
+            Write-Host "      2. Is the firewall blocking Port 1433?" -ForegroundColor Yellow
+        }
+        elseif ($errMsg -match "Login failed for user") {
+            Write-Host "   💡 HINT: Double-check your Username and Password." -ForegroundColor Yellow
+        }
+
         return $null
     }
 }
+
+# ----------------------------------------------------------------------
+# STEP 2.5: FINAL DB VERSION CHECK FUNCTION
+# ----------------------------------------------------------------------
+function Show-DBVersions {
+    param($Server, $User, $Password)
+
+    Write-Host "`n[Generatig Final Version Report...]" -ForegroundColor DarkYellow
+    
+    try {
+        $connString = "Server=$Server;User Id=$User;Password=$Password;Database=master;Connection Timeout=30;"
+        $conn = New-Object System.Data.SqlClient.SqlConnection
+        $conn.ConnectionString = $connString
+        $conn.Open()
+
+        $cmd = $conn.CreateCommand()
+        
+        # === YOUR QUERY INSERTED HERE ===
+        $cmd.CommandText = @"
+DECLARE @sql NVARCHAR(MAX) = N'';
+
+IF OBJECT_ID('tempdb..##FinalResults') IS NOT NULL DROP TABLE ##FinalResults;
+CREATE TABLE ##FinalResults (DatabaseName NVARCHAR(255), VersionInfo NVARCHAR(MAX)); 
+
+SELECT @sql = @sql + '
+IF EXISTS (SELECT 1 
+           FROM [' + name + '].sys.tables t 
+           JOIN [' + name + '].sys.schemas s 
+             ON t.schema_id = s.schema_id 
+           WHERE t.name = ''KPIDBVersion'' AND s.name = ''dbo'')
+BEGIN
+    INSERT INTO ##FinalResults
+    SELECT ''' + name + ''', CAST(Version AS NVARCHAR(MAX)) 
+    FROM [' + name + '].dbo.KPIDBVersion;
+END;
+'
+FROM sys.databases
+WHERE database_id > 4 AND state_desc = 'ONLINE'
+ORDER BY name;
+
+EXEC sp_executesql @sql;
+
+SELECT * FROM ##FinalResults ORDER BY DatabaseName;
+DROP TABLE ##FinalResults;
+"@
+
+        $adapter = New-Object System.Data.SqlClient.SqlDataAdapter $cmd
+        $dataset = New-Object System.Data.DataSet
+        $adapter.Fill($dataset) | Out-Null
+        $conn.Close()
+
+        $results = $dataset.Tables[0]
+
+        if ($results.Rows.Count -gt 0) {
+            Write-Host "`n===== FINAL DATABASE VERSIONS =====" -ForegroundColor Cyan
+            $results | Format-Table -AutoSize
+        } else {
+            Write-Host "⚠ No version information found (KPIDBVersion table might be missing)." -ForegroundColor Yellow
+        }
+    }
+    catch {
+        Write-Host "❌ FAILED TO FETCH VERSIONS: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 
 # ----------------------------------------------------------------------
 # STEP 3: INTERACTIVE SETUP
@@ -105,8 +181,6 @@ if ($runSetup) {
         if ($fetchedDBs) {
             $validConnection = $true
             Write-Host "`n✓ LOGIN SUCCESSFUL! FOUND DATABASES:" -ForegroundColor Green
-            
-            # === CHANGED DISPLAY FORMAT HERE ===
             $displayList = $fetchedDBs -join "; "
             Write-Host "$displayList" -ForegroundColor Gray
         }
@@ -329,4 +403,10 @@ foreach ($db in $DBNames) {
     }
 }
 
+# ----------------------------------------------------------------------
+# FINAL STEP: RUN VERSION CHECK
+# ----------------------------------------------------------------------
 Write-Host "`n🎉 All operations completed." -ForegroundColor Cyan
+
+# CALL THE NEW VERSION CHECK FUNCTION
+Show-DBVersions -Server $IPAddress -User $UserName -Password $Password
