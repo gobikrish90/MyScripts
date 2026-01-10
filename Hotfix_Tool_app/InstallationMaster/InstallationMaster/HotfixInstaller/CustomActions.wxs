@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <CustomAction
+    Id="RunPreInstall"
+    Execute="deferred"
+    Impersonate="no"
+    Return="check"
+    ExeCommand='powershell.exe -ExecutionPolicy Bypass -File "[INSTALLFOLDER]PreInstall.ps1"' />
+
+  <CustomAction
+    Id="RunInstall"
+    Execute="deferred"
+    Impersonate="no"
+    Return="check"
+    ExeCommand='powershell.exe -ExecutionPolicy Bypass -File "[INSTALLFOLDER]Install.ps1"' />
+
+  <CustomAction
+    Id="RunPostInstall"
+    Execute="deferred"
+    Impersonate="no"
+    Return="check"
+    ExeCommand='powershell.exe -ExecutionPolicy Bypass -File "[INSTALLFOLDER]PostInstall.ps1"' />
+
+</Wix>

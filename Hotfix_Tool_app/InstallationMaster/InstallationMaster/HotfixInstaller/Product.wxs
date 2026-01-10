@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+	<Product
+	  Id="*"
+	  Name="Phoenix Hotfix Tool"
+	  Language="1033"
+	  Version="1.0.0.0"
+	  Manufacturer="YourCompany"
+	  UpgradeCode="PUT-GUID-HERE">
+
+		<Package InstallerVersion="500"
+				 Compressed="yes"
+				 InstallScope="perMachine" />
+
+		<MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
+
+		<MediaTemplate />
+
+		<!-- INSTALL LOCATION -->
+		<Directory Id="TARGETDIR" Name="SourceDir">
+			<Directory Id="ProgramFilesFolder">
+				<Directory Id="INSTALLFOLDER" Name="PhoenixHotfix" />
+			</Directory>
+		</Directory>
+
+		<!-- FILES -->
+		<Feature Id="MainFeature" Title="Hotfix Tool" Level="1">
+			<ComponentGroupRef Id="HotfixFiles" />
+		</Feature>
+
+	</Product>
+	<InstallExecuteSequence>
+		<Custom Action="RunPreInstall" Before="InstallFiles">NOT Installed</Custom>
+		<Custom Action="RunInstall" After="InstallFiles">NOT Installed</Custom>
+		<Custom Action="RunPostInstall" After="RunInstall">NOT Installed</Custom>
+	</InstallExecuteSequence>
+
+
+	<!-- FILE DEFINITIONS -->
+	<Fragment>
+		<ComponentGroup Id="HotfixFiles" Directory="INSTALLFOLDER">
+
+			<Component Id="PreInstallPS" Guid="PUT-GUID-HERE">
+				<File Source="payload\PreInstall.ps1" />
+			</Component>
+
+			<Component Id="InstallPS" Guid="PUT-GUID-HERE">
+				<File Source="payload\Install.ps1" />
+			</Component>
+
+			<Component Id="PostInstallPS" Guid="PUT-GUID-HERE">
+				<File Source="payload\PostInstall.ps1" />
+			</Component>
+
+			<Component Id="HotfixZip" Guid="PUT-GUID-HERE">
+				<File Source="payload\Hotfix.zip" />
+			</Component>
+
+		</ComponentGroup>
+	</Fragment>
+
+</Wix>
