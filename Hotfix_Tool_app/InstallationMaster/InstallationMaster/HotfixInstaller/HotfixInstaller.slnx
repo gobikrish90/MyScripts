@@ -1,8 +1,0 @@
-<Solution>
-  <Configurations>
-    <Platform Name="x86" />
-  </Configurations>
-  <Project Path="HotfixInstaller.wixproj">
-    <Build />
-  </Project>
-</Solution>
