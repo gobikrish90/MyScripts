@@ -1,7 +1,13 @@
 ﻿<#
 .SYNOPSIS
-    CAD PD Hotfix - Installation Team
+    ProPhoenix Hotfix Automation (Production / Installation Team).
     
+    FINAL CORRECTIONS:
+    1. CRASH FIX: Removed Unicode icons (✅/❌) from Verification script. 
+       - Fixed "Invalid Regular Expression" error shown in screenshots.
+       - Now uses standard text "[OK]" and "[FAIL]".
+    2. APP MANAGER: Restored "Update Application Manager" logic as STEP 1.
+    3. CLEANUP: Cleaned up output logic to prevent duplicates.
 #>
 
 # ==============================================================================
@@ -9,7 +15,7 @@
 # ==============================================================================
 Clear-Host
 Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "   CAD PD Hotfix - Installation Team  " -ForegroundColor Cyan
+Write-Host "   ProPhoenix Hotfix Automation (PRODUCTION)  " -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
 
 $TargetServer = Read-Host "Enter Target Server Name (Press ENTER for Localhost)"
@@ -33,9 +39,9 @@ $GeneratorLogic = {
 
     # --- DEFINITIONS: HELPER SCRIPTS ---
     
-    # 1. CLEANUP SCRIPT (SVR SESSION DATA ONLY)
+    # 1. CLEANUP SCRIPT
     $SessionClearScriptContent = @"
-[Console]::OutputEncoding = [System.Text.Encoding]::ASCII
+try { [Console]::OutputEncoding = [System.Text.Encoding]::ASCII } catch {}
 Write-Host "========================================="
 Write-Host "      CLEANUP UTILITY (Session Data)     "
 Write-Host "========================================="
@@ -77,63 +83,102 @@ foreach (`$basePath in `$proPhoenixBasePaths) {
 Write-Host "[SUCCESS] Session Cleanup Complete."
 "@
 
-    # 2. VERIFICATION SCRIPT
+    # 2. VERIFICATION SCRIPT (CRASH PROOF VERSION)
     $VerificationScriptContent = @"
-[Console]::OutputEncoding = [System.Text.Encoding]::ASCII
+# -----------------------------------------------
+# DLL Verification Script for ProPhoenix Applications
+# -----------------------------------------------
+try { [Console]::OutputEncoding = [System.Text.Encoding]::ASCII } catch {}
 
+# Sanitize Log Path
+`$cleanLogFile = `$env:LOGFILE -replace '"', ''
+
+# Helper to write to Screen (Color) AND File (Plain)
 function Log-Msg {
-    param([string]`$Msg, [ConsoleColor]`$Color = "White")
+    param([string]`$Msg, [ConsoleColor]`$Color = "White", [bool]`$NoFile = `$false)
+    
+    # 1. Screen Output (Colored)
     Write-Host `$Msg -ForegroundColor `$Color
+    
+    # 2. File Output (Plain Text)
+    if (`$cleanLogFile -and -not `$NoFile) {
+        # Direct output to file (Safe because we removed special icons)
+        `$Msg | Out-File -FilePath `$cleanLogFile -Append -Encoding ASCII -ErrorAction SilentlyContinue
+    }
 }
 
 Log-Msg "[INFO] Starting DLL verification..." "Cyan"
 
-`$prophoenixPaths = Get-PSDrive -PSProvider FileSystem | ForEach-Object { "`$(`$_.Root)Program Files\ProPhoenix" } | Where-Object { Test-Path `$_ }
+`$prophoenixPaths = Get-PSDrive -PSProvider FileSystem | ForEach-Object {
+    `$driveRoot = "`$(`$_.Root)Program Files\ProPhoenix"
+    if (Test-Path `$driveRoot) { `$driveRoot }
+}
+
+if (-not `$prophoenixPaths) {
+    Log-Msg "[ERROR] No ProPhoenix installation found." "Red"
+    exit
+}
+
+Log-Msg "`n[INFO] Found base paths:" "Cyan"
+`$prophoenixPaths | ForEach-Object { Log-Msg " - `$_" }
+
 `$excludedFolders = @("Finger Print Client","ID Scanner","Phoenix WDA V2","Police RMS","PoliceRMS","Print Server","WDA")
-`$completedCount = 0; `$notCompletedCount = 0;
+
+`$completedCount = 0
+`$notCompletedCount = 0
+`$totalChecked = 0
 
 foreach (`$basePath in `$prophoenixPaths) {
-    Log-Msg "`n[SCAN] `$basePath" "Yellow"
-    `$appFolders = Get-ChildItem -Path `$basePath -Directory -ErrorAction SilentlyContinue | Where-Object { `$excludedFolders -notcontains `$_.Name }
+    Log-Msg "`n[INFO] Scanning applications in: `$basePath" "Yellow"
+
+    `$appFolders = Get-ChildItem -Path `$basePath -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { `$excludedFolders -notcontains `$_.Name }
+
     foreach (`$app in `$appFolders) {
         `$instancesPath = Join-Path `$app.FullName "_Instances"
+
         if (Test-Path `$instancesPath) {
-            `$instanceEnvs = Get-ChildItem -Path `$instancesPath -Directory
+            `$instanceEnvs = Get-ChildItem -Path `$instancesPath -Directory -ErrorAction SilentlyContinue
+
             foreach (`$env in `$instanceEnvs) {
-                `$baseDlls = Get-ChildItem -Path `$app.FullName -Filter *.dll -File
-                `$instanceDlls = Get-ChildItem -Path `$env.FullName -Filter *.dll -File
+                `$baseDlls = Get-ChildItem -Path `$app.FullName -Filter *.dll -File -ErrorAction SilentlyContinue
+                `$instanceDlls = Get-ChildItem -Path `$env.FullName -Filter *.dll -File -ErrorAction SilentlyContinue
+
                 `$status = "Completed"
-                
+
                 foreach (`$dll in `$baseDlls) {
                     `$match = `$instanceDlls | Where-Object { `$_.Name -eq `$dll.Name }
+
                     if (`$match) {
-                        # Exact size/date check
-                        if ((`$match.LastWriteTime -lt `$dll.LastWriteTime) -or (`$match.Length -ne `$dll.Length)) { 
+                        if ((`$match.LastWriteTime -lt `$dll.LastWriteTime) -or (`$match.Length -ne `$dll.Length)) {
                             `$status = "Not Completed"
-                            break 
+                            break
                         }
-                    } else { 
+                    } else {
                         `$status = "Not Completed"
-                        break 
+                        break
                     }
                 }
-                
-                if (`$status -eq "Completed") { 
+
+                `$totalChecked++
+                if (`$status -eq "Completed") {
                     `$completedCount++
-                    Log-Msg "[OK] `$(`$app.Name) -> `$(`$env.Name)" "Green" 
-                } else { 
+                    Log-Msg ("[OK] " + `$app.Name + " -> " + `$env.Name + " : Completed") "Green"
+                } else {
                     `$notCompletedCount++
-                    Log-Msg "[FAIL] `$(`$app.Name) -> `$(`$env.Name) (DLL Mismatch)" "Red" 
+                    Log-Msg ("[WARN] " + `$app.Name + " -> " + `$env.Name + " : Not Completed") "Red"
                 }
             }
         }
     }
 }
-Log-Msg "`n--------------------------------------" "White"
-Log-Msg ("Total Verified : " + (`$completedCount + `$notCompletedCount)) "White"
+
+Log-Msg "`n[INFO] DLL verification completed." "Cyan"
+Log-Msg "--------------------------------------"
+Log-Msg ("Total Verified : " + `$totalChecked)
 Log-Msg ("Completed      : " + `$completedCount) "Green"
 Log-Msg ("Not Completed  : " + `$notCompletedCount) "Red"
-Log-Msg "--------------------------------------" "White"
+Log-Msg "--------------------------------------"
 "@
 
     # --- CONFIGURATION ---
@@ -172,7 +217,7 @@ $RawMappingData = @"
 
     Clear-Host
     Write-Host "==============================================" -ForegroundColor Yellow
-    Write-Host "   CAD PD Hotfix - Installation Team    " -ForegroundColor Yellow
+    Write-Host "   ProPhoenix Hotfix Automation (Generation)  " -ForegroundColor Yellow
     Write-Host "   HOST: $CurrentHostName" -ForegroundColor Yellow
     Write-Host "==============================================" -ForegroundColor Yellow
 
@@ -223,13 +268,12 @@ $RawMappingData = @"
         $LogDir = Join-Path -Path $AppMgrFolder -ChildPath "PnxLog\PrintLog"
         if (-not (Test-Path $LogDir)) { try { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null } catch {} }
         
-        # --- NEW LOGIC: FIND UPDATER SETTINGS ---
+        # --- FIND UPDATER SETTINGS ---
         $ConfigFileName = "PnxConfigMgr.exe.config"
         $ConfigFound = $false
         $UpdUser = "N/A"
         $UpdLoc = "N/A"
         
-        # FIXED: Wrapped Join-Path commands in parentheses to prevent array conversion error
         $PossibleConfigPaths = @(
             (Join-Path -Path $AppMgrFolder -ChildPath $ConfigFileName),
             (Join-Path -Path (Split-Path $AppMgrFolder -Parent) -ChildPath "Server Application Manager\$ConfigFileName"),
@@ -336,7 +380,15 @@ echo [INFO] Updater Loc : $UpdLoc >> %LOGFILE%
 
 echo.
 echo ===================================================
-echo   STEP 1: PRODUCTION APPLICATION INSTALL
+echo   STEP 1: UPDATING APPLICATION MANAGER
+echo ===================================================
+echo [LOG] Updating Application Manager... >> %LOGFILE%
+%AppMgrExePath%\PnxAppMgr.exe "UPDAPPMANAGER"
+timeout 10 > NUL
+
+echo.
+echo ===================================================
+echo   STEP 2: PRODUCTION APPLICATION INSTALL
 echo   (Services are still RUNNING)
 echo ===================================================
 echo [LOG] Installing Production Apps... >> %LOGFILE%
@@ -344,7 +396,7 @@ echo [LOG] Installing Production Apps... >> %LOGFILE%
 
 echo.
 echo ===================================================
-echo   STEP 2: STAGE APPLICATION INSTALL
+echo   STEP 3: STAGE APPLICATION INSTALL
 echo ===================================================
 SET /P "StagePrompt=Do you want to install STAGE Applications now? (Y/N): "
 IF /I "%StagePrompt%"=="Y" GOTO RunStage
@@ -362,7 +414,7 @@ echo Skipping Stage Installation...
 :StopServices
 echo.
 echo ===================================================
-echo   STEP 3: STOPPING SERVICES (MAINTENANCE START)
+echo   STEP 4: STOPPING SERVICES (MAINTENANCE START)
 echo ===================================================
 echo [LOG] Stopping Services... >> %LOGFILE%
 %windir%\System32\iisreset.exe /stop >> %LOGFILE% 2>&1
@@ -373,27 +425,24 @@ echo [LOG] Stopping Services... >> %LOGFILE%
 
 echo.
 echo ===================================================
-echo   STEP 4: CLEANUP (SVR SESSION DATA ONLY)
+echo   STEP 5: CLEANUP (SVR SESSION DATA ONLY)
 echo ===================================================
 echo [LOG] Cleaning Session Data... >> %LOGFILE%
 %PSExe% -ExecutionPolicy Bypass -File "%~dp0SessionClear.ps1" | %PSExe% -Command "`$input | ForEach-Object { Write-Host `$_; `$_ | Out-File -FilePath '%LOGFILE%' -Append -Encoding ASCII }" 2>&1
 
 echo.
 echo ===================================================
-echo   STEP 5: UPDATING INSTANCES
+echo   STEP 6: UPDATING INSTANCES
 echo ===================================================
 echo [LOG] Starting IIS for Instance Update... >> %LOGFILE%
 %windir%\System32\iisreset.exe /start >> %LOGFILE% 2>&1
-echo [LOG] Updating Application Manager... >> %LOGFILE%
-%AppMgrExePath%\PnxAppMgr.exe "UPDAPPMANAGER"
-timeout 10 > NUL
 
 echo [LOG] Running UPDATEINSTANCE... >> %LOGFILE%
 $UpdateCmd
 
 echo.
 echo ===================================================
-echo   STEP 6: STARTING PHOENIX SERVICES
+echo   STEP 7: STARTING PHOENIX SERVICES
 echo ===================================================
 echo [LOG] Starting Services... >> %LOGFILE%
 timeout /t 5 >nul
@@ -401,17 +450,17 @@ timeout /t 5 >nul
 
 echo.
 echo ===================================================
-echo   STEP 6.5: REPORTING INSTANCE STATUS
+echo   STEP 8: REPORTING INSTANCE STATUS
 echo ===================================================
 echo [LOG] Reporting Instance Status... >> %LOGFILE%
 %AppMgrExePath%\PnxAppMgr.exe "SHOWINSTANCES" | %PSExe% -Command "`$input | ForEach-Object { Write-Host `$_; `$_ | Out-File -FilePath '%LOGFILE%' -Append -Encoding ASCII }" 2>&1
 
 echo.
 echo ===================================================
-echo   STEP 7: VERIFICATION AND CLIENT LAUNCH
+echo   STEP 9: VERIFICATION AND CLIENT LAUNCH
 echo ===================================================
 echo [LOG] Verifying DLLs... >> %LOGFILE%
-%PSExe% -ExecutionPolicy Bypass -File "%~dp0InstanceVerification.ps1" | %PSExe% -Command "`$input | ForEach-Object { Write-Host `$_; `$_ | Out-File -FilePath '%LOGFILE%' -Append -Encoding ASCII }" 2>&1
+%PSExe% -ExecutionPolicy Bypass -File "%~dp0InstanceVerification.ps1"
 
 echo.
 echo ===================================================

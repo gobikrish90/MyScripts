@@ -1,5 +1,5 @@
 ﻿# ======================================================================
-#  ProPhoenix DB Utility Dashboard - v76.0 (Priority Sort & Grid Lock)
+#  ProPhoenix DB Utility Dashboard - v4.9 Installation Team
 # ======================================================================
 [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Drawing") 
 [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") 
@@ -9,6 +9,9 @@
 $Script:SetupPath = "C:\pnxtemp\dbsynctool"
 $Script:XmlTarget = Join-Path $Script:SetupPath "PnxAutoNewDBSyn.xml"
 $Script:CredFile  = Join-Path $Script:SetupPath "SavedCreds.xml"
+# Auto-detect background image
+$Script:BgImage   = Join-Path $Script:SetupPath "background.png" 
+if (!(Test-Path $Script:BgImage)) { $Script:BgImage = Join-Path $Script:SetupPath "background.jpg" }
 $Script:LogoFile  = Join-Path $Script:SetupPath "logo.png"
 
 # Dynamic Variables
@@ -24,10 +27,11 @@ if (!(Test-Path $Script:XmlTarget)) {
     Set-Content -Path $Script:XmlTarget -Value '<?xml version="1.0" encoding="utf-8" ?><PnxPakager><SourceServer><IPAddress>LOCALHOST</IPAddress><DBName>DBName</DBName><UserName>sa</UserName><Password>pnx</Password><JurisID>1000</JurisID><State>MA</State><JurisName>ProPhoenix</JurisName><JurisAlias>PNX</JurisAlias><SyncType>2</SyncType></SourceServer></PnxPakager>' -Force 
 }
 
-# --- THEME: INFOGRAPHIC LIGHT ---
-$colBg      = [System.Drawing.Color]::White
-$colText    = [System.Drawing.Color]::FromArgb(64, 64, 64)
-$colInputBg = [System.Drawing.Color]::WhiteSmoke
+# --- THEME: DARK MODE ---
+$colBg      = [System.Drawing.Color]::Black
+$colText    = [System.Drawing.Color]::WhiteSmoke
+$colInputBg = [System.Drawing.Color]::FromArgb(60, 60, 60) 
+$colList    = [System.Drawing.Color]::FromArgb(40, 40, 40) 
 
 # Accents
 $colSrc     = [System.Drawing.Color]::FromArgb(220, 53, 69)    # Red
@@ -52,9 +56,18 @@ $form.StartPosition = "CenterScreen"
 $form.BackColor = $colBg
 $form.ForeColor = $colText
 
+# Apply Background Image
+if (Test-Path $Script:BgImage) {
+    try {
+        $form.BackgroundImage = [System.Drawing.Image]::FromFile($Script:BgImage)
+        $form.BackgroundImageLayout = "Zoom" 
+    } catch { Write-Host "Error loading background image." }
+}
+
 # --- MASTER GRID LAYOUT ---
 $masterGrid = New-Object System.Windows.Forms.TableLayoutPanel
 $masterGrid.Dock = "Fill"
+$masterGrid.BackColor = [System.Drawing.Color]::Transparent 
 $masterGrid.RowCount = 6
 $masterGrid.ColumnCount = 1
 # Row Definitions
@@ -67,34 +80,37 @@ $masterGrid.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Wind
 $form.Controls.Add($masterGrid)
 
 # --- ROW 0: HEADER ---
-$pnlHead = New-Object System.Windows.Forms.Panel; $pnlHead.Dock="Fill"
-$picLogo = New-Object System.Windows.Forms.PictureBox; $picLogo.Size="160,50"; $picLogo.Location="15,10"; $picLogo.SizeMode="Zoom"; if(Test-Path $Script:LogoFile){$picLogo.Image=[System.Drawing.Image]::FromFile($Script:LogoFile)}; $pnlHead.Controls.Add($picLogo)
+$pnlHead = New-Object System.Windows.Forms.Panel; $pnlHead.Dock="Fill"; $pnlHead.BackColor="Transparent"
+$picLogo = New-Object System.Windows.Forms.PictureBox; $picLogo.Size="160,50"; $picLogo.Location="15,10"; $picLogo.SizeMode="Zoom"; 
+if(Test-Path $Script:LogoFile){$picLogo.Image=[System.Drawing.Image]::FromFile($Script:LogoFile)}
+$pnlHead.Controls.Add($picLogo)
+
 $lblTitle = New-Object System.Windows.Forms.Label; $lblTitle.Text="DB Sync Dashboard - Installation"; $lblTitle.AutoSize=$true; $lblTitle.Location="190,15"; $lblTitle.Font=$fontTitle; $lblTitle.ForeColor=$colProc; $pnlHead.Controls.Add($lblTitle)
 $lblVerDisplay = New-Object System.Windows.Forms.Label; $lblVerDisplay.Text = "Utility Ver: --"; $lblVerDisplay.AutoSize=$false; $lblVerDisplay.TextAlign="MiddleRight"; $lblVerDisplay.Size="300,30"; $lblVerDisplay.Location="800,20"; $lblVerDisplay.Font=$fontHeader; $lblVerDisplay.ForeColor=$colProc; $pnlHead.Controls.Add($lblVerDisplay)
-$masterGrid.Controls.Add($pnlHead, 0, 0)
+[void]$masterGrid.Controls.Add($pnlHead, 0, 0)
 
 # --- ROW 1: ADMIN MAINTENANCE ---
-$pnlAdmin = New-Object System.Windows.Forms.Panel; $pnlAdmin.Dock="Fill"; $pnlAdmin.BackColor=$colInputBg
-$masterGrid.Controls.Add($pnlAdmin, 0, 1)
+$pnlAdmin = New-Object System.Windows.Forms.Panel; $pnlAdmin.Dock="Fill"; $pnlAdmin.BackColor=[System.Drawing.Color]::FromArgb(150, 40, 40, 40) # Semi-transparent dark
+[void]$masterGrid.Controls.Add($pnlAdmin, 0, 1)
 
-$lblMaint = New-Object System.Windows.Forms.Label; $lblMaint.Text="Admin Maintenance:"; $lblMaint.Location="20, 25"; $lblMaint.AutoSize=$true; $lblMaint.Font=$fontHeader; $lblMaint.ForeColor="Gray"
+$lblMaint = New-Object System.Windows.Forms.Label; $lblMaint.Text="Admin Maintenance:"; $lblMaint.Location="20, 25"; $lblMaint.AutoSize=$true; $lblMaint.Font=$fontHeader; $lblMaint.ForeColor="LightGray"; $lblMaint.BackColor="Transparent"
 $pnlAdmin.Controls.Add($lblMaint)
 
 $btnInstall = New-Object System.Windows.Forms.Button; $btnInstall.Text="Install Utility"; $btnInstall.Location="200,15"; $btnInstall.Size="180,40"; $btnInstall.BackColor=$btnGreen; $btnInstall.ForeColor="White"; $btnInstall.FlatStyle="Flat"; $pnlAdmin.Controls.Add($btnInstall)
 $btnUninstall = New-Object System.Windows.Forms.Button; $btnUninstall.Text="Uninstall Utility"; $btnUninstall.Location="400,15"; $btnUninstall.Size="180,40"; $btnUninstall.BackColor=$btnRed; $btnUninstall.ForeColor="White"; $btnUninstall.FlatStyle="Flat"; $pnlAdmin.Controls.Add($btnUninstall)
 
 # --- ROW 2: CONNECTION ---
-$grpCon = New-Object System.Windows.Forms.GroupBox; $grpCon.Text=" 1. SQL Connection "; $grpCon.Dock="Fill"; $grpCon.ForeColor=$colSrc; $grpCon.Font=$fontHeader
-$masterGrid.Controls.Add($grpCon, 0, 2)
+$grpCon = New-Object System.Windows.Forms.GroupBox; $grpCon.Text=" 1. SQL Connection "; $grpCon.Dock="Fill"; $grpCon.ForeColor=$colSrc; $grpCon.Font=$fontHeader; $grpCon.BackColor="Transparent"
+[void]$masterGrid.Controls.Add($grpCon, 0, 2)
 
-$flowCon = New-Object System.Windows.Forms.FlowLayoutPanel; $flowCon.Dock="Fill"
+$flowCon = New-Object System.Windows.Forms.FlowLayoutPanel; $flowCon.Dock="Fill"; $flowCon.BackColor="Transparent"
 $flowCon.Padding = New-Object System.Windows.Forms.Padding(10, 15, 0, 0)
 $grpCon.Controls.Add($flowCon)
 
 function Add-FlowInput($parent, $lbl, $w, $def, $isPass=$false) {
-    $p = New-Object System.Windows.Forms.Panel; $p.Size = New-Object System.Drawing.Size($w, 50)
-    $l = New-Object System.Windows.Forms.Label; $l.Text=$lbl; $l.Location="0,0"; $l.AutoSize=$true; $l.Font=$fontNorm; $l.ForeColor="Black"; $p.Controls.Add($l)
-    $t = New-Object System.Windows.Forms.TextBox; $t.Location="0,20"; $t.Width=($w-10); $t.Text=$def; $t.Font=$fontNorm; $t.BackColor=$colInputBg; $t.BorderStyle="FixedSingle"; if($isPass){$t.PasswordChar="*"}; $p.Controls.Add($t)
+    $p = New-Object System.Windows.Forms.Panel; $p.Size = New-Object System.Drawing.Size($w, 50); $p.BackColor="Transparent"
+    $l = New-Object System.Windows.Forms.Label; $l.Text=$lbl; $l.Location="0,0"; $l.AutoSize=$true; $l.Font=$fontNorm; $l.ForeColor="White"; $p.Controls.Add($l)
+    $t = New-Object System.Windows.Forms.TextBox; $t.Location="0,20"; $t.Width=($w-10); $t.Text=$def; $t.Font=$fontNorm; $t.BackColor=$colInputBg; $t.ForeColor="White"; $t.BorderStyle="FixedSingle"; if($isPass){$t.PasswordChar="*"}; $p.Controls.Add($t)
     $parent.Controls.Add($p)
     return $t
 }
@@ -102,69 +118,84 @@ $txtS = Add-FlowInput $flowCon "Server IP / Name" 200 $env:COMPUTERNAME
 $txtU = Add-FlowInput $flowCon "SQL Username" 150 "sa"
 $txtP = Add-FlowInput $flowCon "SQL Password" 150 "" $true
 
-$pChk = New-Object System.Windows.Forms.Panel; $pChk.Size="120,50"; $flowCon.Controls.Add($pChk)
-$chkSave = New-Object System.Windows.Forms.CheckBox; $chkSave.Text="Remember"; $chkSave.Location="0,22"; $chkSave.AutoSize=$true; $chkSave.Font=$fontNorm; $chkSave.ForeColor="Black"; $pChk.Controls.Add($chkSave)
+$pChk = New-Object System.Windows.Forms.Panel; $pChk.Size="120,50"; $pChk.BackColor="Transparent"; $flowCon.Controls.Add($pChk)
+$chkSave = New-Object System.Windows.Forms.CheckBox; $chkSave.Text="Remember"; $chkSave.Location="0,22"; $chkSave.AutoSize=$true; $chkSave.Font=$fontNorm; $chkSave.ForeColor="White"; $pChk.Controls.Add($chkSave)
 
-$pBtn = New-Object System.Windows.Forms.Panel; $pBtn.Size="150,50"; $flowCon.Controls.Add($pBtn)
+$pBtn = New-Object System.Windows.Forms.Panel; $pBtn.Size="150,50"; $pBtn.BackColor="Transparent"; $flowCon.Controls.Add($pBtn)
 $btnCon = New-Object System.Windows.Forms.Button; $btnCon.Text="CONNECT"; $btnCon.Location="0,15"; $btnCon.Size="130,32"; $btnCon.BackColor=$colSrc; $btnCon.ForeColor="White"; $btnCon.FlatStyle="Flat"; $btnCon.Font=$fontHeader; $pBtn.Controls.Add($btnCon)
 
 # --- ROW 3: MAIN BODY ---
-$splitGrid = New-Object System.Windows.Forms.TableLayoutPanel; $splitGrid.Dock="Fill"; $splitGrid.ColumnCount=2; $splitGrid.RowCount=1
+$splitGrid = New-Object System.Windows.Forms.TableLayoutPanel; $splitGrid.Dock="Fill"; $splitGrid.ColumnCount=2; $splitGrid.RowCount=1; $splitGrid.BackColor="Transparent"
 $splitGrid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 35)))
 $splitGrid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 65)))
-$masterGrid.Controls.Add($splitGrid, 0, 3)
+[void]$masterGrid.Controls.Add($splitGrid, 0, 3)
 
 # LEFT: LIST
-$grpList = New-Object System.Windows.Forms.GroupBox; $grpList.Text=" 2. Select Targets "; $grpList.Dock="Fill"; $grpList.ForeColor=$colProc; $grpList.Font=$fontHeader
-$splitGrid.Controls.Add($grpList, 0, 0)
+$grpList = New-Object System.Windows.Forms.GroupBox; $grpList.Text=" 2. Select Targets "; $grpList.Dock="Fill"; $grpList.ForeColor=$colProc; $grpList.Font=$fontHeader; $grpList.BackColor="Transparent"
+[void]$splitGrid.Controls.Add($grpList, 0, 0)
 
-$listInner = New-Object System.Windows.Forms.TableLayoutPanel; $listInner.Dock="Fill"; $listInner.RowCount=2
+$listInner = New-Object System.Windows.Forms.TableLayoutPanel; $listInner.Dock="Fill"; $listInner.RowCount=2; $listInner.BackColor="Transparent"
 $listInner.Padding = New-Object System.Windows.Forms.Padding(10, 20, 10, 10)
 $listInner.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 30)))
 $listInner.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
 $grpList.Controls.Add($listInner)
 
-$chkAll = New-Object System.Windows.Forms.CheckBox; $chkAll.Text="Select All Databases"; $chkAll.Dock="Fill"; $chkAll.Font=$fontNorm; $chkAll.ForeColor="Black"
+$chkAll = New-Object System.Windows.Forms.CheckBox; $chkAll.Text="Select All Databases"; $chkAll.Dock="Fill"; $chkAll.Font=$fontNorm; $chkAll.ForeColor="White"
 $listInner.Controls.Add($chkAll, 0, 0)
 
-$listDBs = New-Object System.Windows.Forms.CheckedListBox; $listDBs.Dock="Fill"; $listDBs.BorderStyle="FixedSingle"; $listDBs.BackColor=$colInputBg; $listDBs.Font=$fontNorm; $listDBs.CheckOnClick=$true
+$listDBs = New-Object System.Windows.Forms.CheckedListBox; $listDBs.Dock="Fill"; $listDBs.BorderStyle="FixedSingle"; $listDBs.BackColor=$colList; $listDBs.ForeColor="White"; $listDBs.Font=$fontNorm; $listDBs.CheckOnClick=$true
 $listInner.Controls.Add($listDBs, 0, 1)
 
 # RIGHT: LOG
-$grpLog = New-Object System.Windows.Forms.GroupBox; $grpLog.Text=" 3. Activity Log "; $grpLog.Dock="Fill"; $grpLog.ForeColor=$colOut; $grpLog.Font=$fontHeader
-$splitGrid.Controls.Add($grpLog, 1, 0)
+$grpLog = New-Object System.Windows.Forms.GroupBox; $grpLog.Text=" 3. Activity Log "; $grpLog.Dock="Fill"; $grpLog.ForeColor=$colOut; $grpLog.Font=$fontHeader; $grpLog.BackColor="Transparent"
+[void]$splitGrid.Controls.Add($grpLog, 1, 0)
 
-$txtLog = New-Object System.Windows.Forms.RichTextBox; $txtLog.Dock="Fill"; $txtLog.BorderStyle="None"; $txtLog.BackColor="White"; $txtLog.ForeColor="Black"; $txtLog.Font=$fontLog; $txtLog.ReadOnly=$true; $txtLog.ScrollBars="Vertical"
-$pnlLogPad = New-Object System.Windows.Forms.Panel; $pnlLogPad.Dock="Fill"; $pnlLogPad.Padding=New-Object System.Windows.Forms.Padding(10, 20, 10, 10); $grpLog.Controls.Add($pnlLogPad); $pnlLogPad.Controls.Add($txtLog)
+# FIX: Add CLEAR BUTTON safely
+$btnClear = New-Object System.Windows.Forms.Button
+$btnClear.Text = "Clear Log"
+$btnClear.Size = New-Object System.Drawing.Size(80, 22)
+# Ensure GrpLog is a single object before math
+$gl = $grpLog | Select-Object -Last 1 
+$btnClear.Location = New-Object System.Drawing.Point(([int]$gl.Width - 90), 0)
+$btnClear.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+$btnClear.BackColor = "DimGray"
+$btnClear.ForeColor = "White"
+$btnClear.FlatStyle = "Flat"
+$btnClear.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+$grpLog.Controls.Add($btnClear)
 
-# --- ROW 4: ACTION BUTTONS (GRID LAYOUT FIX) ---
-# Using a 2-Column Table ensures 50/50 split and guarantees visibility
+$txtLog = New-Object System.Windows.Forms.RichTextBox; $txtLog.Dock="Fill"; $txtLog.BorderStyle="None"; $txtLog.BackColor=$colList; $txtLog.ForeColor="LightGray"; $txtLog.Font=$fontLog; $txtLog.ReadOnly=$true; $txtLog.ScrollBars="Vertical"
+$pnlLogPad = New-Object System.Windows.Forms.Panel; $pnlLogPad.Dock="Fill"; $pnlLogPad.Padding=New-Object System.Windows.Forms.Padding(10, 25, 10, 10); $pnlLogPad.BackColor="Transparent"; $grpLog.Controls.Add($pnlLogPad); $pnlLogPad.Controls.Add($txtLog)
+
+$btnClear.Add_Click({ $txtLog.Clear(); Log-Write "Log Cleared." "Gray" })
+
+# --- ROW 4: ACTION BUTTONS ---
 $pnlAction = New-Object System.Windows.Forms.TableLayoutPanel
-$pnlAction.Dock="Fill"; $pnlAction.BackColor="White"; $pnlAction.ColumnCount=2; $pnlAction.RowCount=1
+$pnlAction.Dock="Fill"; $pnlAction.BackColor="Transparent"; $pnlAction.ColumnCount=2; $pnlAction.RowCount=1
 $pnlAction.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50)))
 $pnlAction.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50)))
 $pnlAction.Padding = New-Object System.Windows.Forms.Padding(50, 25, 50, 25) 
-$masterGrid.Controls.Add($pnlAction, 0, 4)
+[void]$masterGrid.Controls.Add($pnlAction, 0, 4)
 
 $btnSync = New-Object System.Windows.Forms.Button; $btnSync.Text="START SYNC ➜"; $btnSync.Dock="Fill"; $btnSync.BackColor=$colProc; $btnSync.ForeColor="White"; $btnSync.Font=$fontHeader; $btnSync.FlatStyle="Flat"
 $pnlAction.Controls.Add($btnSync, 0, 0)
 
 $btnVer = New-Object System.Windows.Forms.Button; $btnVer.Text="CHECK DB VERSIONS"; $btnVer.Dock="Fill"; $btnVer.BackColor=$btnOrange; $btnVer.ForeColor="White"; $btnVer.Font=$fontHeader; $btnVer.FlatStyle="Flat"
-$btnVer.Margin = New-Object System.Windows.Forms.Padding(20, 0, 0, 0) # Gap between buttons
+$btnVer.Margin = New-Object System.Windows.Forms.Padding(20, 0, 0, 0) # Spacer
 $pnlAction.Controls.Add($btnVer, 1, 0)
 
 # --- ROW 5: STATUS ---
-$statusStrip = New-Object System.Windows.Forms.StatusStrip; $statusStrip.BackColor="White"; $statusStrip.Dock="Fill"
-$lblStat = New-Object System.Windows.Forms.ToolStripStatusLabel; $lblStat.Text="Ready."; $lblStat.ForeColor="DimGray"
+$statusStrip = New-Object System.Windows.Forms.StatusStrip; $statusStrip.BackColor=[System.Drawing.Color]::FromArgb(30,30,30); $statusStrip.Dock="Fill"
+$lblStat = New-Object System.Windows.Forms.ToolStripStatusLabel; $lblStat.Text="Ready."; $lblStat.ForeColor="White"
 $pbStat = New-Object System.Windows.Forms.ToolStripProgressBar; $pbStat.Size="400,16"
 $statusStrip.Items.Add($lblStat); $statusStrip.Items.Add($pbStat)
-$masterGrid.Controls.Add($statusStrip, 0, 5)
+[void]$masterGrid.Controls.Add($statusStrip, 0, 5)
 
 # ======================================================================
 #  LOGIC BLOCK
 # ======================================================================
 
-function Log-Write($text, $color="Black") {
+function Log-Write($text, $color="White") {
     $txtLog.SelectionStart = $txtLog.TextLength
     $txtLog.SelectionColor = [System.Drawing.Color]::FromName($color)
     $txtLog.AppendText("$text`r`n")
@@ -256,7 +287,7 @@ function Scan-Server {
         if ($Data.Valid) {
             $Script:DBSyncRoot = Join-Path $Data.InstallPath "DB Sync"
             $lblVerDisplay.Text = "Utility Ver: $($Data.Version)"; $lblVerDisplay.ForeColor = [System.Drawing.Color]::SeaGreen
-            Log-Write "✔ Found Utility: $($Data.Version)" "Green"
+            Log-Write "✔ Found Utility: $($Data.Version)" "Lime"
         } else {
             $lblVerDisplay.Text = "Utility Not Found"; $lblVerDisplay.ForeColor = [System.Drawing.Color]::Red
             $Script:DBSyncRoot = $null; Log-Write "⚠ Utility Not Found on Target." "Red"
@@ -268,7 +299,7 @@ $form.Add_Load({ Load-Creds })
 $chkAll.Add_CheckedChanged({ for ($i=0; $i -lt $listDBs.Items.Count; $i++) { $listDBs.SetItemChecked($i, $chkAll.Checked) } })
 
 $btnCon.Add_Click({
-    Toggle-Inputs $false; $listDBs.Items.Clear(); $lblStat.Text="Connecting..."; Log-Write "Connecting..." "Black"
+    Toggle-Inputs $false; $listDBs.Items.Clear(); $lblStat.Text="Connecting..."; Log-Write "Connecting..." "White"
     try {
         $cs = "Server=$($txtS.Text);User Id=$($txtU.Text);Password=$($txtP.Text);Database=master;Connection Timeout=5"
         $cn = New-Object System.Data.SqlClient.SqlConnection($cs); $cn.Open()
@@ -276,22 +307,21 @@ $btnCon.Add_Click({
         $cmd.CommandText = "SELECT Name FROM sys.databases WHERE database_id > 4 AND Name NOT IN ('master','model','msdb','tempdb', 'ReportServer', 'ReportServerTempDB') ORDER BY Name"
         $da = New-Object System.Data.SqlClient.SqlDataAdapter($cmd); $ds = New-Object System.Data.DataSet; $da.Fill($ds)|Out-Null; $cn.Close()
         foreach($row in $ds.Tables[0].Rows) { [void]$listDBs.Items.Add($row.Name) }
-        Log-Write "✔ SQL Connected." "Green"; $lblStat.Text="Connected."; Save-Creds; Scan-Server $txtS.Text
+        Log-Write "✔ SQL Connected." "Lime"; $lblStat.Text="Connected."; Save-Creds; Scan-Server $txtS.Text
     } catch { Log-Write "❌ Error: $($_.Exception.Message)" "Red"; $lblStat.Text="Connection Failed." } finally { Toggle-Inputs $true }
 })
 
-# --- SYNC LOGIC (SORTED PRIORITY) ---
+# --- SYNC LOGIC ---
 $btnSync.Add_Click({
     if ($listDBs.CheckedItems.Count -eq 0) { [System.Windows.Forms.MessageBox]::Show("Select a DB!"); return }
     if (!$Script:DBSyncRoot) { [System.Windows.Forms.MessageBox]::Show("Utility Path Not Found!", "Error"); return }
     Toggle-Inputs $false
     
-    # 1. BUILD LIST & ASSIGN PRIORITY
+    # PRIORITY SORT
     $ProcessQueue = @()
     foreach ($item in $listDBs.CheckedItems) {
-        $p = 99 # Default low priority
+        $p = 99
         $k = "Unknown"
-        
         if ($item -match "Master$") { $p=1; $k="PhoenixMaster" }
         elseif ($item -match "Police$") { $p=2; $k="Police" }
         elseif ($item -match "Fire$") { $p=3; $k="Fire" }
@@ -299,30 +329,21 @@ $btnSync.Add_Click({
         elseif ($item -match "CSP$") { $p=5; if ($item -like "*Fire*"){$k="FireCSP"}else{$k="PoliceCSP"} }
         elseif ($item -match "DW$") { $p=6; $k="PoliceDW" }
         
-        if ($k -ne "Unknown") {
-            $ProcessQueue += [PSCustomObject]@{ Name=$item; Key=$k; Priority=$p }
-        } else {
-            Log-Write "   Skipped $item (Unknown Type)" "Gray"
-        }
+        if ($k -ne "Unknown") { $ProcessQueue += [PSCustomObject]@{ Name=$item; Key=$k; Priority=$p } }
+        else { Log-Write "   Skipped $item (Unknown Type)" "Gray" }
     }
-
-    # 2. SORT BY PRIORITY (1 -> 6)
     $SortedQueue = $ProcessQueue | Sort-Object Priority
 
-    # 3. EXECUTE IN ORDER
     $totalCount = $SortedQueue.Count; $dbIndex = 0; $pbStat.Maximum = 100; $pbStat.Value = 0
     $folders = @{ Police="Police"; Fire="Fire"; IA="IA"; PhoenixMaster="Phoenix Master"; PoliceDW="Police DW"; PoliceCSP="Police CSP"; FireCSP="Fire CSP" }
 
     foreach ($task in $SortedQueue) {
-        $db = $task.Name
-        $k = $task.Key
-        
+        $db = $task.Name; $k = $task.Key
         $dbIndex++; $pct = [int](($dbIndex - 1) / $totalCount * 100)
         $lblStat.Text = "Processing $dbIndex of ${totalCount}: $db ( $pct % )"; $pbStat.Value = $pct; $pbStat.Style = "Marquee"
-        Log-Write "Processing: $db..." "Blue"; [System.Windows.Forms.Application]::DoEvents()
+        Log-Write "Processing: $db..." "Cyan"; [System.Windows.Forms.Application]::DoEvents()
         
         $targetFolder = Join-Path $Script:DBSyncRoot $folders[$k]
-        
         $jobBlock = {
             param($TargetFolder, $IP, $DB, $User, $Pass, $XML)
             if (!(Test-Path $TargetFolder)) { return "MISSING_FOLDER: $TargetFolder" }
@@ -342,14 +363,14 @@ $btnSync.Add_Click({
                 $logData = Invoke-Command @cmdArgs
             } else { $logData = Invoke-Command -ScriptBlock $jobBlock -ArgumentList $argsList }
             $stopWatch.Stop(); $finalTime = $stopWatch.Elapsed.ToString("ss\.f") + "s"
-            if ($logData -match "DB Version Updated") { Log-Write "   ✔ Success [$finalTime]" "Green" } else { Log-Write "   ❌ Failed [$finalTime]" "Red" }
+            if ($logData -match "DB Version Updated") { Log-Write "   ✔ Success [$finalTime]" "Lime" } else { Log-Write "   ❌ Failed [$finalTime]" "Red" }
         } catch { Log-Write "Error: $($_.Exception.Message)" "Red" }
     }
-    Log-Write "Completed." "Black"; Toggle-Inputs $true; $pbStat.Style="Blocks"; $pbStat.Value=100
+    Log-Write "Completed." "White"; Toggle-Inputs $true; $pbStat.Style="Blocks"; $pbStat.Value=100
 })
 
 $btnVer.Add_Click({
-    Toggle-Inputs $false; $lblStat.Text="Checking Versions..."; Log-Write "Checking Versions..." "Blue"; Scan-Server $txtS.Text
+    Toggle-Inputs $false; $lblStat.Text="Checking Versions..."; Log-Write "Checking Versions..." "Cyan"; Scan-Server $txtS.Text
     try {
         $cs = "Server=$($txtS.Text);User Id=$($txtU.Text);Password=$($txtP.Text);Database=master;Connection Timeout=30"
         $cn = New-Object System.Data.SqlClient.SqlConnection($cs); $cn.Open()
@@ -359,7 +380,7 @@ $btnVer.Add_Click({
         }
         $sb.Append(" SELECT * FROM #R ORDER BY N; DROP TABLE #R;")
         $cmd = $cn.CreateCommand(); $cmd.CommandText = $sb.ToString(); $da=New-Object System.Data.SqlClient.SqlDataAdapter($cmd); $ds=New-Object System.Data.DataSet; $da.Fill($ds)|Out-Null; $cn.Close()
-        foreach($r in $ds.Tables[0].Rows) { Log-Write "$($r.N) : $($r.V)" "Black" }
+        foreach($r in $ds.Tables[0].Rows) { Log-Write "$($r.N) : $($r.V)" "White" }
     } catch { Log-Write "Error: $($_.Exception.Message)" "Red" } finally { Toggle-Inputs $true; $lblStat.Text="Ready." }
 })
 
@@ -376,7 +397,7 @@ $RunAppMgrAction = {
 }
 
 function Exec-Util($act) {
-    Toggle-Inputs $false; Log-Write "Running $act..." "Black"
+    Toggle-Inputs $false; Log-Write "Running $act..." "White"
     try {
         if ($Script:IsRemote) {
             $cmdArgs = @{ ComputerName=$Script:TargetServer; ScriptBlock=$RunAppMgrAction; ArgumentList=$act }

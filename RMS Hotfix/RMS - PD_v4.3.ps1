@@ -1,22 +1,20 @@
 ﻿<#
 .SYNOPSIS
-    RMS - PD Hotfix - Installation Team"
+    MASTER ORCHESTRATOR: FINAL STANDARD (NO PROMPTS - RMS SKIPPED)
     
 .DESCRIPTION
     1. Auto-detects ProPhoenix Drive.
     2. CHECKS PnxConfigMgr for 'UpdateUserName'.
-    3. PROMPTS: "Are you going to run rms application in this or using Minimal downtime?"
-       - YES: Adds RMS Apps to LOGIC 2 (Stop Services).
-       - NO:  Skips RMS Apps.
-    4. Writes helper scripts (SessionClear - NO LOGS, Verification, Launcher).
-    5. Generates 'Production_Update.bat' with 'cd ..\..\..\..' fix.
+    3. RMS LOGIC: AUTOMATICALLY SKIPPED (No prompt).
+    4. Writes helper scripts (SessionClear, Verification, Launcher).
+    5. Generates 'Production_Update.bat'.
     6. Launches the batch file.
 #>
 
 $ErrorActionPreference = "Continue"
 Clear-Host
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "   RMS - PD Hotfix - Installation Team" -ForegroundColor Cyan
+Write-Host "   MASTER ORCHESTRATOR: STANDARD (RMS EXCLUDED)" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # ==============================================================================
@@ -78,37 +76,74 @@ foreach ($basePath in $proPhoenixBasePaths) {
 Write-Host "Session Cleanup Complete."
 '@
 
-# B. VERIFICATION SCRIPT
+# B. VERIFICATION SCRIPT (ROBUST LOGIC)
 $VerifyContent = @'
-[Console]::OutputEncoding = [System.Text.Encoding]::ASCII
-function Log-Msg { param([string]$Msg, [ConsoleColor]$Color = "White") Write-Host $Msg -ForegroundColor $Color }
-Log-Msg "[INFO] Starting DLL verification..." "Cyan"
-$prophoenixPaths = Get-PSDrive -PSProvider FileSystem | ForEach-Object { "$($_.Root)Program Files\ProPhoenix" } | Where-Object { Test-Path $_ }
+# -----------------------------------------------
+# DLL Verification Script for ProPhoenix Applications
+# -----------------------------------------------
+Write-Host "[INFO] Starting DLL verification..." -ForegroundColor Cyan
+
+$prophoenixPaths = Get-PSDrive -PSProvider FileSystem | ForEach-Object {
+    $driveRoot = "$($_.Root)Program Files\ProPhoenix"
+    if (Test-Path $driveRoot) { $driveRoot }
+}
+
+if (-not $prophoenixPaths) {
+    Write-Host "[ERROR] No ProPhoenix installation found." -ForegroundColor Red
+    exit
+}
+
+Write-Host "`n[INFO] Found base paths:" -ForegroundColor Cyan
+$prophoenixPaths | ForEach-Object { Write-Host " - $_" }
+
 $excludedFolders = @("Finger Print Client","ID Scanner","Phoenix WDA V2","Police RMS","PoliceRMS","Print Server","WDA")
-$completedCount = 0; $notCompletedCount = 0;
+$completedCount = 0
+$notCompletedCount = 0
+$totalChecked = 0
+
 foreach ($basePath in $prophoenixPaths) {
+    Write-Host "`n[INFO] Scanning applications in: $basePath" -ForegroundColor Yellow
     $appFolders = Get-ChildItem -Path $basePath -Directory -ErrorAction SilentlyContinue | Where-Object { $excludedFolders -notcontains $_.Name }
+
     foreach ($app in $appFolders) {
         $instancesPath = Join-Path $app.FullName "_Instances"
         if (Test-Path $instancesPath) {
-            $instanceEnvs = Get-ChildItem -Path $instancesPath -Directory
+            $instanceEnvs = Get-ChildItem -Path $instancesPath -Directory -ErrorAction SilentlyContinue
             foreach ($env in $instanceEnvs) {
-                $baseDlls = Get-ChildItem -Path $app.FullName -Filter *.dll -File
-                $instanceDlls = Get-ChildItem -Path $env.FullName -Filter *.dll -File
+                $baseDlls = Get-ChildItem -Path $app.FullName -Filter *.dll -File -ErrorAction SilentlyContinue
+                $instanceDlls = Get-ChildItem -Path $env.FullName -Filter *.dll -File -ErrorAction SilentlyContinue
                 $status = "Completed"
+
                 foreach ($dll in $baseDlls) {
                     $match = $instanceDlls | Where-Object { $_.Name -eq $dll.Name }
                     if ($match) {
-                        if (($match.LastWriteTime -lt $dll.LastWriteTime) -or ($match.Length -ne $dll.Length)) { $status = "Not Completed"; break }
-                    } else { $status = "Not Completed"; break }
+                        if (($match.LastWriteTime -lt $dll.LastWriteTime) -or ($match.Length -ne $dll.Length)) {
+                            $status = "Not Completed"; break
+                        }
+                    } else {
+                        $status = "Not Completed"; break
+                    }
                 }
-                if ($status -eq "Completed") { $completedCount++; Log-Msg "[OK] $($app.Name) -> $($env.Name)" "Green" } 
-                else { $notCompletedCount++; Log-Msg "[FAIL] $($app.Name) -> $($env.Name) (DLL Mismatch)" "Red" }
+
+                $totalChecked++
+                if ($status -eq "Completed") {
+                    $completedCount++
+                    Write-Host ("[OK] " + $app.Name + " -> " + $env.Name + " : Completed") -ForegroundColor Green
+                } else {
+                    $notCompletedCount++
+                    Write-Host ("[WARN] " + $app.Name + " -> " + $env.Name + " : Not Completed") -ForegroundColor Red
+                }
             }
         }
     }
 }
-Log-Msg ("Completed: " + $completedCount + " / Failed: " + $notCompletedCount) "Yellow"
+
+Write-Host "`n[INFO] DLL verification completed." -ForegroundColor Cyan
+Write-Host ("--------------------------------------")
+Write-Host ("Total Verified : " + $totalChecked)
+Write-Host ("Completed      : " + $completedCount) -ForegroundColor Green
+Write-Host ("Not Completed  : " + $notCompletedCount) -ForegroundColor Red
+Write-Host ("--------------------------------------")
 '@
 
 # C. SHORTCUT LAUNCHER
@@ -178,23 +213,14 @@ $ServiceProductList = @(
     "PHOENIXAIWATCHERSERVICE", "PHOENIXJOBSVRV2"
 )
 
-# UPDATED MAPPING DATA (FROM USER)
-$RawMappingData = @"
+$RawMappingData = @'
 ::Script - Updating Root path for all products
 %AppMgrExePath%\PnxAppMgr.exe "MAINSETTINGS" "RMSRootPath" "PoliceRms=%PnxInstallPath%\Police RMS" "FireRms=%PnxInstallPath%\Fire RMS" "JobServer=%PnxInstallPath%\Job Server" "TraCSServer=%PnxInstallPath%\TraCS Server" "VideoServer=%PnxInstallPath%\Video Server" "FingerPrintServer=%PnxInstallPath%\Finger Print Server" "ReportServer=%PnxInstallPath%\Report Server" "ReportService=%PnxInstallPath%\Report Service" "PhoenixWebService=%PnxInstallPath%\WebService" "HazmatGuide=%PnxInstallPath%\User Docs" "FireWebService=%PnxInstallPath%\Fire WebService" "ProvisionManager=%PnxInstallPath%\Provision Manager" "FolderWatcher=%PnxInstallPath%\PnxFolderWatcher" "InternalAffair=%PnxInstallPath%\PhoenixIA" "NIBRS=%PnxInstallPath%\NIBRSInterface" "EmailWatcher=%PnxInstallPath%\Phoenix Email Watcher" "PoliceF1HelpDocs=%PnxInstallPath%\Police RMS\UserDocs" "FireF1HelpDocs=%PnxInstallPath%\Fire RMS\UserDocs" "IAF1HelpDocs=%PnxInstallPath%\PhoenixIA\UserDocs"
-
-::Script - Updating Root path for all products
 %AppMgrExePath%\PnxAppMgr.exe "MAINSETTINGS" "CADRootPath" "CADServer=%PnxInstallPath%\CAD Server" "CADNLBServer=%PnxInstallPath%\CAD NLB Message Server" "E911Server=%PnxInstallPath%\E911 Server" "GPSServer=%PnxInstallPath%\GPS Server" "ZetronServer=%PnxInstallPath%\CAD Zetron Server" "TonerWIServer=%PnxInstallPath%\Toner WI Server" "ExternalInterface=%PnxInstallPath%\External Interface Server" "NCICServer=%PnxInstallPath%\NCIC Server" "NCICStateServer=%PnxInstallPath%\NCIC State Server" "KGISPDServer=%PnxInstallPath%\KGIS PD WebService" "KGISCentralServer=%PnxInstallPath%\KGIS Central WebService" "LocutionCADVoiceServer=%PnxInstallPath%\Locution CAD Voice Server" "DeviceNotification=%PnxInstallPath%\Phoenix Device Notification" "PnxWDAAppWebService=%PnxInstallPath%\WDA App webservice" "PnxWDAAppWebService=%PnxInstallPath%\Fire Response CAD Webservice" "StreamingNotification=%PnxInstallPath%\Streaming Notification" "PhoenixAlertApp=%PnxInstallPath%\Alert App" "PhoenixTExt2Dispatch=%PnxInstallPath%\Text2Dispatch" "CAD2CADTellusServer=%PnxInstallPath%\CAD2CAD Tellus Server" "ReportWriterAPI=%PnxInstallPath%\Phoenix Report Writer API"
-
-::Script - Updating Root path for all products
 %AppMgrExePath%\PnxAppMgr.exe "MAINSETTINGS" "OtherRootPath" "CitizenServices=%PnxInstallPath%\Citizen Services Link" "InmateLookup=%PnxInstallPath%\Inmate Lookup" "WIJIS=%PnxInstallPath%\WIJIS" "SWISS=%PnxInstallPath%\SWISS" "CJIN=%PnxInstallPath%\CJIN Integration Service" "NDEX=%PnxInstallPath%\WIJIS NDEX WebService" "FTPServer=%PnxInstallPath%\FTP Server" "CRM=%PnxInstallPath%\CRM" "InmateLocator=%PnxInstallPath%\Inmate Locator" "FireCSPWCF=%PnxInstallPath%\FireCSPhoenixLink" "PoliceCSPWebAPI=%PnxInstallPath%\CitizenServices" "FireCSPWebsite=%PnxInstallPath%\FireCitizenServices" "ADRWebService=%PnxInstallPath%\ADRCollectionRepositoryWS" "WhatsNewWebService=%PnxInstallPath%\WhatsNewWebService" "DocsServer=%PnxInstallPath%\DocsServer" "PhoenixTonerServer=%PnxInstallPath%\Toner Server" "JailCellCheck=%PnxInstallPath%\Jail Cell Check App Service" "ScenePD=%PnxInstallPath%\PhoenixScenePD" "PDFService=%PnxInstallPath%\PhoenixPDFService" "DBUtility=%PnxInstallPath%\Database Utility"
-
-::Script - Updating Root path for all products
 %AppMgrExePath%\PnxAppMgr.exe "MAINSETTINGS" "StageForClientAppsRootPath" "StageCADClient=%PnxInstallPath%\FTP\CAD Client Stage" "StageWDA=%PnxInstallPath%\FTP\WDA Stage" "StagePrintClient=%PnxInstallPath%\FTP\Print Server Stage" "StageClientAppManager=%PnxInstallPath%\FTP\Client Application Manager Stage" "StageFingerPrintClient=%PnxInstallPath%\FTP\Finger Print Client Stage" "StageIDScannerClient=%PnxInstallPath%\FTP\ID Scanner Stage" "StageStationKIOSKRFIDClient=%PnxInstallPath%\FTP\Station KIOSK RFID Client Stage" "StageRFIDClient=%PnxInstallPath%\FTP\RFID Client Stage" "StageAVLRecorder=%PnxInstallPath%\FTP\AVL Recorder Stage" "StageInOutClient=%PnxInstallPath%\FTP\In Out Client Stage" "StageZetronClient=%PnxInstallPath%\FTP\Zetron Client Stage" "StagePhoenixDashboard=%PnxInstallPath%\FTP\Phoenix Dashboard Stage" "StageMobileInspectionApp=%PnxInstallPath%\FTP\Mobile Inspection App Stage" "PHOENIXJOBSVRV2=%PnxInstallPath%\Job Server V2" "PHOENIXAIWATCHERSERVICE=%PnxInstallPath%\Phoenix AI Watcher" "PNXDIAGRAM=%PnxInstallPath%\PNXDiagram" "PNXDIAGRAMAPI=%PnxInstallPath%\PNXDiagramAPI" "INSPECTIONAPI=%PnxInstallPath%\Phoenix Inspection API" "FIRECSPCONVERSION=%PnxInstallPath%\Fire CSP Conversion" "CAMERASERVER=%PnxInstallPath%\Phoenix Camera Server" "PHOENIXPAWN=%PnxInstallPath%\Phoenix Pawn" "StagePhoenixWDAV2=%PnxInstallPath%\FTP\Phoenix WDA V2 Stage"
-
-:: --- AUTOMATICALLY ADDED MAPPINGS (FOUND IN YOUR APPREG_MAIN.XML BUT MISSING ABOVE) ---
 "PhoenixHub=%PnxInstallPath%\PhoenixHub" "PaymentGateway=%PnxInstallPath%\Payment Gateway" "Authenticator=%PnxInstallPath%\Phoenix Authenticator" "InterfaceFolderWatcher=%PnxInstallPath%\Phoenix Interface Folder Watcher" "RegionalCAD2CAD=%PnxInstallPath%\Phoenix Regional CAD2CAD Service" "CADLiveStreaming=%PnxInstallPath%\Phoenix CAD Live Streaming Service" "DBUtilityCodeBook=%PnxInstallPath%\Phoenix Database Utility CodeBook" "CRMHubAPI=%PnxInstallPath%\CRMHubAPI" "PhoenixGateway=%PnxInstallPath%\Phoenix Gateway" "CSPProcessQueue=%PnxInstallPath%\CSPProcessQueueService" "CSPConversion=%PnxInstallPath%\CSP Conversion" "AIMugMatch=%PnxInstallPath%\PhoenixAIMugMatch" "AIAPI=%PnxInstallPath%\CRMHubAPI\PNXAIAPI" "ExpenseAPI=%PnxInstallPath%\CRMHubAPI\PNXExpenseAPI" "CustomerAPI=%PnxInstallPath%\CRMHubAPI\PNXCustomerAPI" "EmploymentClient=%PnxInstallPath%\Phoenix Employment Client" "AzureFileDownloader=%PnxInstallPath%\Azure File Downloader"
-"@
+'@
 
 # PARSE MAPPINGS
 $PathToID = @{}
@@ -211,20 +237,11 @@ Write-Host "   [MAP] Loaded $($PathToID.Count) product definitions." -Foreground
 # ==============================================================================
 # 4. SCAN & GENERATE BATCH
 # ==============================================================================
-# --- NEW PROMPT FOR RMS ---
-$RMSMode = Read-Host "`n?? Are you going to run rms application in this or using Minimal downtime? (Y/N)"
+# --- ALWAYS SKIP RMS CONFIGURATION ---
 $ExcludedIDs = @("PoliceRms", "FireRms", "InternalAffair", "Phoenix IA")
 $Logic2IDs = @("PDFService", "ReportWriterAPI", "PhoenixWebService", "StagePhoenixWDAV2")
 
-if ($RMSMode -eq "Y") {
-    # IF YES: Add RMS to Logic 2, Clear Exclusions
-    $Logic2IDs += @("PoliceRms", "FireRms", "InternalAffair", "Phoenix IA")
-    $ExcludedIDs = @() # Empty exclusion list
-    Write-Host "   [CONFIG] RMS Mode: INCLUDED in LOGIC 2" -ForegroundColor Green
-} else {
-    Write-Host "   [CONFIG] RMS Mode: SKIPPED (Minimal Downtime)" -ForegroundColor Yellow
-}
-
+Write-Host "   [CONFIG] RMS Mode: ALWAYS SKIPPED" -ForegroundColor DarkGray
 Write-Host "`n[STEP 4] Scanning Products..." -ForegroundColor Yellow
 
 # FIND APP REG
@@ -306,13 +323,13 @@ if ($xmlData.PhoenixApplications.AppReg) {
             continue
         }
 
-        # --- 2. EXCLUSION CHECK (Affected by Prompt) ---
+        # --- 2. EXCLUSION CHECK (RMS Always Skipped) ---
         if ($ExcludedIDs -contains $UseID) { 
             Write-Host "$LogMsg -> SKIPPED (Excluded)" -ForegroundColor DarkGray
             continue 
         }
 
-        # --- 3. LOGIC 2 CHECK (SPECIAL APPS + RMS IF PROMPTED) ---
+        # --- 3. LOGIC 2 CHECK (SPECIAL APPS) ---
         if ($Logic2IDs -contains $UseID -or $UseID -match "Stage" -or $UseID -like "*Web*Service*") {
             $ListL2.Add("`"$UseID`"")
             $DisplayL2 += $UseID
