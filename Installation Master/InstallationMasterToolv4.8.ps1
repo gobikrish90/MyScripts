@@ -1,7 +1,8 @@
 ﻿<#
 .SYNOPSIS
-    Prophoenix Installation Dashboard (v76.0 - Title Update)
-    - UI UPDATE: Changed header title to "Installation Dashboard".
+    Prophoenix Installation Dashboard (v4.8)
+    - UI UPDATE: Main Header set to "ProPhoenix Installation Dashboard".
+    - UI UPDATE: Sidebar Sub-text set to "DASHBOARD".
     - CORE: Retains Deep Search, 2032 Blob URL, Auto-Unblock, and Logging.
 #>
 
@@ -86,7 +87,7 @@ function Write-ScriptLog($ScriptFriendlyName, $msg) {
 #  4. MAIN FORM UI
 # ==============================================================================
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "Prophoenix Installation Dashboard v76.0"
+$form.Text = "Prophoenix Installation Dashboard v77.0"
 $form.Size = New-Object System.Drawing.Size(1200, 800)
 $form.StartPosition = "CenterScreen"
 $form.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30) 
@@ -107,7 +108,10 @@ $pnlSide.BackColor=$Col_GlassSide;
 $form.Controls.Add($pnlSide)
 
 $lblBrand = New-Object System.Windows.Forms.Label; $lblBrand.Text="PROPHOENIX"; $lblBrand.Font=$Font_Head; $lblBrand.ForeColor=$Col_White; $lblBrand.Left=20; $lblBrand.Top=30; $lblBrand.AutoSize=$true; $lblBrand.BackColor=$Col_Trans; $pnlSide.Controls.Add($lblBrand)
-$lblSub = New-Object System.Windows.Forms.Label; $lblSub.Text="INSTALLATION"; $lblSub.Font=$Font_Norm; $lblSub.ForeColor=[System.Drawing.Color]::Cyan; $lblSub.Left=22; $lblSub.Top=60; $lblSub.AutoSize=$true; $lblSub.BackColor=$Col_Trans; $pnlSide.Controls.Add($lblSub)
+
+# --- SIDEBAR SUB-HEADING UPDATED ---
+$lblSub = New-Object System.Windows.Forms.Label; $lblSub.Text="DASHBOARD"; $lblSub.Font=$Font_Norm; $lblSub.ForeColor=[System.Drawing.Color]::Cyan; $lblSub.Left=22; $lblSub.Top=60; $lblSub.AutoSize=$true; $lblSub.BackColor=$Col_Trans; $pnlSide.Controls.Add($lblSub)
+# -----------------------------------
 
 # Buttons
 $btnSearch = New-Object System.Windows.Forms.Button; $btnSearch.Text="  🔍  SEARCH MASTER"; $btnSearch.TextAlign="MiddleLeft"; $btnSearch.Font=$Font_Sub; $btnSearch.ForeColor=$Col_White; $btnSearch.BackColor=$Col_Blue; $btnSearch.FlatStyle="Flat"; $btnSearch.FlatAppearance.BorderSize=0; $btnSearch.Left=0; $btnSearch.Top=120; $btnSearch.Size=New-Object System.Drawing.Size(260, 50); $btnSearch.Cursor="Hand"; $pnlSide.Controls.Add($btnSearch)
@@ -119,8 +123,8 @@ $pnlHead = New-Object System.Windows.Forms.Panel; $pnlHead.Dock="Top"; $pnlHead.
 $pnlHead.BackColor=$Col_Trans; 
 $form.Controls.Add($pnlHead)
 
-# --- TITLE UPDATED HERE ---
-$lblTitle = New-Object System.Windows.Forms.Label; $lblTitle.Text="Installation Dashboard"; $lblTitle.Font=$Font_Head; $lblTitle.Left=280; $lblTitle.Top=20; $lblTitle.AutoSize=$true; 
+# --- MAIN TITLE UPDATED ---
+$lblTitle = New-Object System.Windows.Forms.Label; $lblTitle.Text="ProPhoenix Installation Dashboard"; $lblTitle.Font=$Font_Head; $lblTitle.Left=280; $lblTitle.Top=20; $lblTitle.AutoSize=$true; 
 $lblTitle.ForeColor=$Col_White; 
 $lblTitle.BackColor=$Col_Trans; 
 $pnlHead.Controls.Add($lblTitle)

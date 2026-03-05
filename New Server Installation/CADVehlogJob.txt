@@ -1,0 +1,275 @@
+-- ==============================================================================
+-- 1. SET YOUR CONFIGURATION VARIABLES HERE
+-- ==============================================================================
+DECLARE @SourceDB NVARCHAR(128)      = 'PoliceCADTest';     -- Change to your RMS DB
+DECLARE @DestinationDB NVARCHAR(128) = 'CADVehLog';    -- Change to your VehLog DB
+-- ==============================================================================
+
+DECLARE @ReturnCode INT = 0;
+DECLARE @DynamicSQL NVARCHAR(MAX);
+
+-- ==============================================================================
+-- 2. CREATE DESTINATION DATABASE & CONFIGURE AUTOGROWTH
+-- ==============================================================================
+IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = @DestinationDB)
+BEGIN
+    -- Create the Database
+    SET @DynamicSQL = N'CREATE DATABASE [' + @DestinationDB + N'];';
+    EXEC sp_executesql @DynamicSQL;
+
+    -- Modify the Log file Autogrowth to 5MB and Unlimited Max Size
+    DECLARE @LogFileName NVARCHAR(128) = @DestinationDB + N'_log';
+    SET @DynamicSQL = N'ALTER DATABASE [' + @DestinationDB + N'] MODIFY FILE ( NAME = N''' + @LogFileName + N''', FILEGROWTH = 5MB, MAXSIZE = UNLIMITED );';
+    EXEC sp_executesql @DynamicSQL;
+END
+
+-- ==============================================================================
+-- 3. CREATE & ENABLE "Job_CADVehLog"
+-- ==============================================================================
+BEGIN TRANSACTION
+SELECT @ReturnCode = 0
+
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+BEGIN
+    EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]'
+    IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback1
+END
+
+DECLARE @jobId1 BINARY(16)
+-- Creating the job with @enabled=1 so it is enabled immediately
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'Job_CADVehLog', 
+		@enabled=1, 
+		@notify_level_eventlog=0, 
+		@notify_level_email=0, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'No description available.', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'sa', @job_id = @jobId1 OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback1
+
+-- STEP 1: Create a table ends with yesterday date
+DECLARE @Step1Cmd NVARCHAR(MAX) = N'Declare @DestinationDBName Varchar(50)
+Set @DestinationDBName = ''PhoenixCADVehLog''
+Declare @PrevDate DateTime
+Declare @Month Varchar(2)
+Declare @Date Varchar(2)
+Declare @Year Varchar(4)
+Declare @MDY varchar(10)
+Declare @TableScript nvarchar(1000)
+Declare @ColumnName nVarchar(1000)
+Declare @TableName nVarchar(200)
+Declare @Keys nVarchar(1000)
+Declare @Index nVarchar(1000)
+Select @PrevDate = DATEADD(d,-1,getDate())
+Select @Month = replace (str (datepart (mm, @PrevDate), 2), '' '', ''0'')
+Select @Date = replace (str (datepart (dd, @PrevDate), 2), '' '', ''0'')
+Select @Year = DATENAME(yyyy, @PrevDate) 
+Set @MDY = @Year+@Month+@Date
+set @TableName = ''CADVehLog''+ @MDY	 
+Set @ColumnName = ''(VehLogID bigint  IDENTITY(1,1) Not Null,
+					UnitID bigint Null,
+					JurisID int,
+					UnitRef char(15) Not Null,
+					OffPFID bigint,
+					Latitude decimal(10, 6) Not Null,
+					Longitude decimal(9, 6) Not Null,
+					Altitude decimal(10, 6),
+					Speed decimal(9, 6),
+					LogDttm datetime Not Null,
+					VehID Bigint Null, ''
+Set @Keys = ''CONSTRAINT [VehLogID''+@MDY+''_PK] PRIMARY KEY CLUSTERED 
+(
+	[VehLogID] ASC
+))''
+Set @Index = ''Use '' + @DestinationDBName + ''
+	If Not exists ( Select id from sysIndexes Where Name = ''+''''''''+''VehLogID''+@MDY+''_x1''+''''''''+'')
+Begin
+	CREATE NONCLUSTERED INDEX [VehLogID''+@MDY+''_x1] ON [dbo].[''+@TableName+''] 
+(
+	[UnitID] ASC
+)
+End''
+	Declare @Index1 nVarchar(1000)
+	Set @Index1 =  ''Use '' + @DestinationDBName + ''
+		If Not exists ( Select id from sysIndexes Where Name = ''+''''''''+''VehLogID''+@MDY+''_x2''+''''''''+'')
+	Begin
+		CREATE NONCLUSTERED INDEX [VehLogID''+@MDY+''_x2] ON [dbo].[''+@TableName+''] 
+	(
+		[LogDttm] ASC	
+	)
+	End''
+	Declare @Index2 nVarchar(1000)
+	Set @Index2 =  ''  use '' + @DestinationDBName + ''
+		  If Not exists ( Select id from sysIndexes Where Name = ''+''''''''+''VehLogID''+@MDY+''_x3''+''''''''+'')
+	Begin
+		CREATE NONCLUSTERED INDEX [VehLogID''+@MDY+''_x3] ON [dbo].[''+@TableName+''] 
+	(
+		[VehID] ASC	
+	)
+	End''
+Set @TableScript = ''Use '' + @DestinationDBName + '' 
+		IF Not Exists ( Select Name from sysobjects where name =  ''+''''''''+@TableName+''''''''+'')
+		Begin
+		Create Table ''+ @TableName + @ColumnName + @Keys +'' END ''
+Exec SP_ExecuteSQL @TableScript
+Exec SP_ExecuteSQL @Index
+Exec SP_ExecuteSQL @Index1
+Exec SP_ExecuteSQL @Index2'
+
+-- Inject dynamic DestinationDB
+SET @Step1Cmd = REPLACE(@Step1Cmd, '''PhoenixCADVehLog''', '''' + @DestinationDB + '''');
+
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId1, @step_name=N'Create a table ends with yesterday date', 
+		@step_id=1, @cmdexec_success_code=0, @on_success_action=3, @on_success_step_id=0, @on_fail_action=2, @on_fail_step_id=0, @retry_attempts=0, @retry_interval=0, @os_run_priority=0, @subsystem=N'TSQL', 
+		@command=@Step1Cmd, @database_name=N'master', @flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback1
+
+-- STEP 2: Insert records from RMS DB to CADVehLog DB
+DECLARE @Step2Cmd NVARCHAR(MAX) = N'Declare @SourceDBName Varchar(50)
+Declare @DestinationDBName Varchar(50)
+Set @SourceDBName = ''PhoenixPolice''
+Set @DestinationDBName = ''PhoenixCADVehLog''
+Declare @PrevDate DateTime
+Declare @Month Varchar(2)
+Declare @Date Varchar(2)
+Declare @Year Varchar(4)
+Declare @MDY varchar(10)
+Declare @TableScript nvarchar(1000)
+Declare @TableName nVarchar(200)
+Select @PrevDate = DATEADD(d,-1,getDate())
+Select @Month = replace (str (datepart (mm, @PrevDate), 2), '' '', ''0'')
+Select @Date = replace (str (datepart (dd, @PrevDate), 2), '' '', ''0'')
+Select @Year = DATENAME(yyyy, @PrevDate)
+Set @MDY = @Year+@Month+@Date
+set @TableName = ''CADVehLog''+ @MDY	 
+Declare @To nVarchar(100)
+Set @To = @Year+''-''+@Month+''-''+@Date+'' 23:59:59.990''
+Set @TableScript =  '' Insert InTo [''+@DestinationDBName +''].[dbo].[''+ @TableName + ''] Select * From [''+@SourceDBName+''].[dbo].[CADVehLog]
+ Where Latitude IS NOT NULL AND Longitude IS NOT NULL AND LogDttm <= ''+''''''''+@To+''''''''
+Exec SP_ExecuteSQL @TableScript'
+
+-- Inject dynamic SourceDB and DestinationDB
+SET @Step2Cmd = REPLACE(@Step2Cmd, '''PhoenixPolice''', '''' + @SourceDB + '''');
+SET @Step2Cmd = REPLACE(@Step2Cmd, '''PhoenixCADVehLog''', '''' + @DestinationDB + '''');
+
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId1, @step_name=N'Insert records from RMS DB to CADVehLog DB', 
+		@step_id=2, @cmdexec_success_code=0, @on_success_action=3, @on_success_step_id=0, @on_fail_action=2, @on_fail_step_id=0, @retry_attempts=0, @retry_interval=0, @os_run_priority=0, @subsystem=N'TSQL', 
+		@command=@Step2Cmd, @database_name=N'master', @flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback1
+
+-- STEP 3: Delete the records from CADVehLog table
+DECLARE @Step3Cmd NVARCHAR(MAX) = N'Declare @SourceDBName Varchar(50)
+Set @SourceDBName = ''PhoenixPolice''
+Declare @PrevDate DateTime
+Declare @Month Varchar(2)
+Declare @Date Varchar(2)
+Declare @FullYear varchar(4)
+Declare @TableScript nvarchar(1000)
+Declare @To nVarchar(100)
+Set @PrevDate = DATEADD(d,-1,getDate())
+Set @Month = replace (str (datepart (mm, @PrevDate), 2), '' '', ''0'')
+Set @Date = replace (str (datepart (dd, @PrevDate), 2), '' '', ''0'')
+Set @FullYear = DATENAME(yyyy, @PrevDate)
+Set @To = @FullYear+''-''+@Month+''-''+@Date+'' 23:59:59.990''
+Set @TableScript = '' Delete from [''+@SourceDBName+''].[dbo].[CADVehLog]
+Where LogDttm <= ''+''''''''+@To+''''''''
+Exec SP_ExecuteSQL @TableScript'
+
+-- Inject dynamic SourceDB
+SET @Step3Cmd = REPLACE(@Step3Cmd, '''PhoenixPolice''', '''' + @SourceDB + '''');
+
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId1, @step_name=N'Delete the records from CADVehLog table.', 
+		@step_id=3, @cmdexec_success_code=0, @on_success_action=1, @on_success_step_id=0, @on_fail_action=2, @on_fail_step_id=0, @retry_attempts=0, @retry_interval=0, @os_run_priority=0, @subsystem=N'TSQL', 
+		@command=@Step3Cmd, @database_name=N'master', @flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback1
+
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId1, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback1
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId1, @name=N'CADVehLog job schedule', 
+		@enabled=1, @freq_type=4, @freq_interval=1, @freq_subday_type=1, @freq_subday_interval=0, @freq_relative_interval=0, @freq_recurrence_factor=0, @active_start_date=20090716, @active_end_date=99991231, @active_start_time=20000, @active_end_time=235959
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback1
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId1, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback1
+COMMIT TRANSACTION
+GOTO EndSave1
+QuitWithRollback1:
+	IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave1: 
+
+
+-- ==============================================================================
+-- 4. CREATE THE "Purge AVL Replay Data" JOB (Disabled & Dynamic Start Date)
+-- ==============================================================================
+BEGIN TRANSACTION
+SELECT @ReturnCode = 0
+DECLARE @jobId2 BINARY(16);
+
+-- Create the Purge job as DISABLED (@enabled=0) 
+EXEC @ReturnCode =  msdb.dbo.sp_add_job 
+		@job_name=N'Purge AVL Replay Data', 
+		@enabled=0,  
+		@notify_level_eventlog=0, 
+		@notify_level_email=0, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'Occurs every day at 1:00:00 AM.', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'sa', 
+		@job_id = @jobId2 OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback2
+
+DECLARE @PurgeJobCommand NVARCHAR(MAX) = N'EXEC PnxSP_PurgeAVLData @SrcDBName = ''' + @SourceDB + N''', @ParamID = 6503';
+
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep 
+		@job_id=@jobId2, 
+		@step_name=N'Data Purging Step', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2,    
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, 
+		@subsystem=N'TSQL', 
+		@command=@PurgeJobCommand, 
+		@database_name=@DestinationDB, 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback2
+
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId2, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback2
+
+-- Get the current date in YYYYMMDD format for the schedule start date
+DECLARE @CurrentDateInt INT;
+SET @CurrentDateInt = CAST(CONVERT(VARCHAR(8), GETDATE(), 112) AS INT);
+
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule 
+		@job_id=@jobId2, 
+		@name=N'Data Purging Schedule', 
+		@enabled=1, 
+		@freq_type=4,          
+		@freq_interval=1,      
+		@freq_subday_type=1, 
+		@freq_subday_interval=0, 
+		@freq_relative_interval=0, 
+		@freq_recurrence_factor=0, 
+		@active_start_date=@CurrentDateInt, -- DYNAMICALLY ASSIGNED CURRENT DATE
+		@active_end_date=99991231,   
+		@active_start_time=10000,    
+		@active_end_time=235959
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback2
+
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId2, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback2
+
+COMMIT TRANSACTION
+GOTO EndSave2
+
+QuitWithRollback2:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave2:
