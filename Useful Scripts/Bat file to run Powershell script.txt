@@ -1,0 +1,10 @@
+﻿<# :
+@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((Get-Content '%~f0' -Raw))"
+exit /b
+#>
+
+# --- YOUR POWERSHELL CODE STARTS HERE ---
+Write-Host "Hello! This is running from a Batch file." -ForegroundColor Cyan
+Get-Service | Select-Object -First 10
+pause
