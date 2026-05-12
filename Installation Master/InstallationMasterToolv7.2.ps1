@@ -122,7 +122,7 @@ $script:Font_Copyright = New-Object System.Drawing.Font("Segoe UI", 8, [System.D
 
 # Core Logic Variables
 $Url_GDrive   = "https://drive.google.com/uc?export=download&id=10RxuJaWwqR1S6lbkjL0-_AXddCwOARYI"
-$Url_Blob     = "https://produpdates.blob.core.windows.net/web/Prerequisite%20Script%202026/Phoenix%20Installation%20Master.zip?sp=racw&st=2026-01-30T14:01:41Z&se=2032-03-30T22:16:41Z&spr=https&sv=2024-11-04&sr=b&sig=3vXVuby1lcDbQ%2BQQnVzxmmXJsyaRG2sgQwTH9SzPnh4%3D"
+$Url_Blob     = 
 $ZipNamePattern = "Phoenix Installation Master*.zip"
 $InstallBase    = "C:\pnxtemp\Phoenix Installation Master"
 $script:CurrentToolPath = $InstallBase 
