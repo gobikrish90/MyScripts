@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Installation Master Tool v7.2
     - FEATURE: Replaced Help Docs dropdown with a dynamic TreeView Documentation Explorer (Categorized by folders).
@@ -208,7 +208,7 @@ and Test/Demo Hotfix workflows.
 * SVR Session Clear: Clears CAD instance session files.
 * SQL Memory Setting: Sets SQL Server max memory to 75% of RAM.
 
-6. DBSYNC TOOL — RUN ON SQL SERVER
+6. DBSYNC TOOL � RUN ON SQL SERVER
 --------------------------------------------------------------------------------
 1. Launch the DBSync Tool on the SQL Server.
 2. Enter the Required Credentials for the SQL Server.
@@ -233,7 +233,7 @@ and Test/Demo Hotfix workflows.
 4. The script runs Instance Update, clears SVR Session, and Log Clear.
 5. Press any key to start Clients Auto Update.
 
-9. TEST/DEMO HOTFIX — NON-PRODUCTION
+9. TEST/DEMO HOTFIX � NON-PRODUCTION
 --------------------------------------------------------------------------------
 1. Launch 'Test/Demo Hotfix'. Review updater settings and press Y.
 2. The script updates App Manager and installs all applications automatically.
@@ -682,13 +682,13 @@ function Show-LicenseVerification {
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <Button Name="btnOld" Grid.Row="0" Content="▼ OLD LICENSE DATA" Height="40" Margin="0,0,0,5"/>
+            <Button Name="btnOld" Grid.Row="0" Content="? OLD LICENSE DATA" Height="40" Margin="0,0,0,5"/>
             <TextBox Name="txtOld" Grid.Row="1" Height="150" Visibility="Collapsed" Margin="0,0,0,15" TextWrapping="Wrap" />
 
-            <Button Name="btnNew" Grid.Row="2" Content="▼ NEW LICENSE DATA" Height="40" Margin="0,0,0,5"/>
+            <Button Name="btnNew" Grid.Row="2" Content="? NEW LICENSE DATA" Height="40" Margin="0,0,0,5"/>
             <TextBox Name="txtNew" Grid.Row="3" Height="150" Visibility="Collapsed" Margin="0,0,0,20" TextWrapping="Wrap"/>
 
-            <Button Name="btnAnalyse" Grid.Row="4" Content="▶ EXECUTE SMART ANALYSE" Height="50" Background="#00E5FF" Foreground="#0B132B" FontSize="16" Margin="0,0,0,20"/>
+            <Button Name="btnAnalyse" Grid.Row="4" Content="? EXECUTE SMART ANALYSE" Height="50" Background="#00E5FF" Foreground="#0B132B" FontSize="16" Margin="0,0,0,20"/>
 
             <GroupBox Grid.Row="5" Header="VERIFICATION RESULTS" Foreground="#5BC0BE" FontFamily="Consolas" BorderBrush="#1C2541">
                 <RichTextBox Name="rtbResults" Background="#050A1F" BorderThickness="0" Padding="10" IsReadOnly="True" VerticalScrollBarVisibility="Auto">
@@ -718,10 +718,10 @@ function Show-LicenseVerification {
     $btnOld.Add_Click({
         if ($txtOld.Visibility -eq 'Collapsed') {
             $txtOld.Visibility = 'Visible'
-            $btnOld.Content = "▲ OLD LICENSE DATA"
+            $btnOld.Content = "? OLD LICENSE DATA"
         } else {
             $txtOld.Visibility = 'Collapsed'
-            $btnOld.Content = "▼ OLD LICENSE DATA"
+            $btnOld.Content = "? OLD LICENSE DATA"
         }
     })
 
@@ -729,10 +729,10 @@ function Show-LicenseVerification {
     $btnNew.Add_Click({
         if ($txtNew.Visibility -eq 'Collapsed') {
             $txtNew.Visibility = 'Visible'
-            $btnNew.Content = "▲ NEW LICENSE DATA"
+            $btnNew.Content = "? NEW LICENSE DATA"
         } else {
             $txtNew.Visibility = 'Collapsed'
-            $btnNew.Content = "▼ NEW LICENSE DATA"
+            $btnNew.Content = "? NEW LICENSE DATA"
         }
     })
 
@@ -1484,7 +1484,7 @@ $btnHelpDocs.Add_Click({ Show-HelpPrompt })
 $tabContainer.Controls.Add($btnHelpDocs)
 
 $btnRefresh = New-Object System.Windows.Forms.Button
-$btnRefresh.Text = "↻ Refresh"
+$btnRefresh.Text = "? Refresh"
 $btnRefresh.Size = New-Object System.Drawing.Size(200, 40)
 $btnRefresh.Location = New-Object System.Drawing.Point(720, 0)
 $btnRefresh.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -1539,7 +1539,7 @@ $script:pnlConsole.Controls.Add($script:TermConsole)
 
 # --- COPYRIGHT WATERMARK ---
 $lblCopyright = New-Object System.Windows.Forms.Label
-$lblCopyright.Text = "© 2026, ProPhoenix Corporation, All Rights Reserved"
+$lblCopyright.Text = "� 2026, ProPhoenix Corporation, All Rights Reserved"
 $lblCopyright.Font = $script:Font_Copyright
 $lblCopyright.ForeColor = $colorTextMuted
 $lblCopyright.Dock = "Bottom"
@@ -1574,7 +1574,7 @@ $script:form.Add_Shown({
     
     # ---------------------------------------------------------
     # ADD YOUR GITHUB REPO ZIP URL HERE:
-    $Url_GitHub = "https://github.com/YourUsername/YourRepo/archive/refs/heads/main.zip"
+    $Url_GitHub = "https://github.com/gobikrish90/MyScripts/raw/main/Phoenix%20Installation%20Master.zip"
     # ---------------------------------------------------------
     
     $DownloadUrls = @($Url_Blob, $Url_GDrive, $Url_GitHub)
