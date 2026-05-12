@@ -1,0 +1,63 @@
+AgencyName=Centre Region Records Management Consortium Borough of State College
+MultiJuris=TRUE
+InstallType=LSAAS
+CreatedDttm=2026/05/04
+RunExpiryDttm=2027/01/01
+SupportExpiryDttm=2027/01/01
+ProductType=01
+LicenseKeyID=100050250781655
+
+Packages
+
+Packages Name = Police RMS Enterprise
+Packages ID = 100050007442072
+Package Juris = <2672,2673,2674,2675,2676,2678,2677,2679,2680,2681,2682,2660,2683,2684,2685,2661,2662,2663,2664,2665,2666,2667,2668,2669,2670,2671>
+No. of User = -1
+360 - Alarm
+400 - CAD
+150 - Scheduling
+160 - Training
+170 - Document Mgmt
+240 - Records
+280 - Warrant
+300 - Case Management
+320 - Property
+330 - Tow/Vehicle
+380 - Traffic
+470 - K9
+520 - Inventory
+560 - Citizen Services
+890 - Detail Work
+870 - BI
+700 - Fire Static
+440 - NCIC
+130 - Help Desk
+630 - Coroner
+120 - Employment Applicants
+620 - Animal Control
+
+Packages Name = AI Transcription
+Packages ID = 100050184124514
+Package Juris = <2672,2673,2674,2675,2676,2678,2677,2679,2680,2681,2682,2660,2683,2684,2685,2661,2662,2663,2664,2665,2666,2667,2668,2669,2670,2671>
+No. of User = -1
+1010 - AI Transcription
+
+Packages Name = Police Citizen Services - Subscription
+Packages ID = 100050007529567
+Package Juris = <2660>
+No. of User = 1
+1005 - Citizen Service - Subscription
+
+Packages Name = AI
+Packages ID = 100050168479163
+Package Juris = <2670,2673,2685,2678,2667,2668,2677,2664,2680,2660,2666,2676,2679,2662,2672,2682,2665,2675,2681,2663,2671,2661,2683,2674,2684,2669>
+No. of User = -1
+190 - AI
+
+Packages Name = Entra ID Law
+Packages ID = 100050184124476
+Package Juris = <2672,2673,2674,2675,2676,2678,2677,2679,2680,2681,2682,2660,2683,2684,2685,2661,2662,2663,2664,2665,2666,2667,2668,2669,2670,2671>
+No. of User = -1
+1011 - Entra ID
+
+Juris=2660*Centre Region Records Management Consortium Borough of State College,2661*Ferguson Township Police,2662*Patton Township Police Department,2663*State College Borough Police,2664*Penn State Abington Campus,2665*Penn State Altoona Campus,2666*Penn State Berks Campus,2667*Penn State Beaver Campus,2668*Penn State Brandywine Campus,2669*Penn State Carlisle Campus (Dickinson),2670*Penn State Dubois Campus,2671*Penn State Erie-Behrend Campus,2672*Penn State Fayette Campus,2673*Penn State Greater Allegheny Campus,2674*Penn State Great Valley Campus,2675*Penn State Harrisburg Campus,2676*Penn State Hazleton Campus,2677*Penn State Lehigh Valley,2678*Penn State Mont Alto Campus,2679*Penn State New Kensington Campus,2680*Penn State Shenango Valley Campus,2681*Penn State Schuylkill Campus,2682*Penn State University Park,2683*Penn State Wilkes-Barre Campus,2684*Penn State Worthington Scranton Campus,2685*Penn State York Campus
