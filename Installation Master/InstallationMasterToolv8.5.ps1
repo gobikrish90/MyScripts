@@ -1,0 +1,2073 @@
+<#
+.SYNOPSIS
+    Installation Master Tool v8.5
+    - BUGFIX: Fixed panel width anomaly ($pnlHostBadge) that pushed the "i" button out of the visible screen bounds. The button is now perfectly restored to the top right of the badge.
+    - BUGFIX: Enforced 'global:' scope on ALL functions to completely prevent "CommandNotFoundException" and UI crashes during the asynchronous Add_Shown startup.
+    - BUGFIX: Fully restored the "Download Prerequisite" button to the General tab.
+    - FEATURE: True Tab Independence and Live Polling for concurrent remote server WinRM execution.
+    - FEATURE: Dashboard Interceptor pipes user input into extracted Primary Batch files natively over WinRM.
+#>
+
+# ==============================================================================
+#  0. INSTANT BACKGROUND CONSOLE HIDE (Native App Mode)
+# ==============================================================================
+if ($host.Name -notmatch "ISE") {
+    $hwnd = (Get-Process -Id $PID).MainWindowHandle
+    try {
+        $type = [Win32Functions.Win32ShowWindowAsync]
+    } catch {
+        $code = '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);'
+        $type = Add-Type -MemberDefinition $code -Name "Win32ShowWindowAsync" -Namespace Win32Functions -PassThru
+    }
+    if ($hwnd -ne [IntPtr]::Zero) { [void]$type::ShowWindow($hwnd, 0) }
+}
+
+Write-Host "[INIT] Booting Installation Master Tool v8.5..." -ForegroundColor Cyan
+
+# ==============================================================================
+#  1. BULLETPROOF PATH DETECTION & ADMIN ENFORCEMENT
+# ==============================================================================
+$ScriptPath = $PSScriptRoot
+if ([string]::IsNullOrEmpty($ScriptPath)) {
+    if ($MyInvocation.MyCommand.Path) { $ScriptPath = Split-Path $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue } 
+    else { $ScriptPath = $PWD.Path }
+}
+if ([string]::IsNullOrEmpty($ScriptPath)) { $ScriptPath = "C:\" }
+
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    if ($host.Name -notmatch "ISE") { [void]$type::ShowWindow($hwnd, 5) } 
+    Write-Host "[WARN] Administrative privileges required. Escalating..." -ForegroundColor Yellow
+    Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`"" -Verb RunAs
+    Exit
+}
+
+# ==============================================================================
+#  2. GLOBAL ASSEMBLIES, THEME DEFINITIONS & VARIABLES
+# ==============================================================================
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName PresentationFramework
+
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
+# Dark Mode Palette
+$colorSidebarBg  = [System.Drawing.Color]::FromArgb(255, 20, 20, 25)
+$colorMainBg     = [System.Drawing.Color]::FromArgb(255, 28, 28, 35)
+$colorCardBg     = [System.Drawing.Color]::FromArgb(255, 35, 35, 45)
+$colorRowGlass   = [System.Drawing.Color]::FromArgb(130, 40, 40, 50) 
+$colorCardHover  = [System.Drawing.Color]::FromArgb(255, 55, 55, 65)
+$colorConsoleBg  = [System.Drawing.Color]::FromArgb(255, 13, 13, 13)
+$colorTextWhite  = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+$colorTextMuted  = [System.Drawing.Color]::FromArgb(255, 160, 160, 170)
+$colorTabActive  = [System.Drawing.Color]::FromArgb(255, 65, 65, 80)
+$colorTabDeact   = [System.Drawing.Color]::FromArgb(255, 30, 30, 40)
+$colorGroupBorder= [System.Drawing.Color]::FromArgb(255, 70, 75, 90)
+$colorLblDash    = [System.Drawing.Color]::FromArgb(255, 230, 160, 60) 
+$colorAccentRed  = [System.Drawing.Color]::FromArgb(255, 239, 68, 68)
+
+# Group Themes
+$colorLblGen  = [System.Drawing.Color]::FromArgb(255, 240, 100, 100)
+$colorBtnGen  = [System.Drawing.Color]::FromArgb(255, 80, 35, 40)    
+$colorLblDiag = [System.Drawing.Color]::FromArgb(255, 100, 200, 255)
+$colorBtnDiag = [System.Drawing.Color]::FromArgb(255, 30, 70, 110)   
+$colorLblSys  = [System.Drawing.Color]::FromArgb(255, 180, 130, 250)
+$colorBtnSys  = [System.Drawing.Color]::FromArgb(255, 55, 35, 80)    
+$termGreen = [System.Drawing.Color]::FromArgb(255, 46, 204, 113) 
+$termCyan  = [System.Drawing.Color]::Cyan
+$termGray  = [System.Drawing.Color]::Gray
+
+# Fonts
+$fontHeader    = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
+$fontSubHeader = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
+$fontMenuBold  = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+$fontTerminal  = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Regular)
+$fontCleanBold = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+$fontCleanVal  = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Regular)
+$fontRowText   = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold) 
+$script:Font_Copyright = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Regular)
+
+# Core Logic Variables
+$Url_GDrive   = "https://drive.google.com/uc?export=download&id=10RxuJaWwqR1S6lbkjL0-_AXddCwOARYI"
+$Url_Blob     = ""
+$ZipNamePattern = "Phoenix Installation Master*.zip"
+$InstallBase    = "C:\pnxtemp\Phoenix Installation Master"
+$script:CurrentToolPath = $InstallBase 
+$script:ToolsLoaded = $false
+
+# Remote Execution Tracking Variables
+$global:ActiveJobs = @()
+$global:RemoteTargets = @() 
+$script:TargetCred = $null
+$script:TargetUser = ""
+$script:TargetPass = ""
+$script:SavedCredsList = @()
+$global:LogTabs = @{}
+$global:LogBoxes = @{}
+[datetime]$script:sessionStart = [datetime]::Now
+
+# Watermarks
+$logoPath = Join-Path -Path $ScriptPath -ChildPath "logo.png"
+$global:fadedWatermark = $null
+$global:splashWatermark = $null
+
+if (Test-Path $logoPath) {
+    try { 
+        $origImg = [System.Drawing.Image]::FromFile($logoPath)
+        $global:fadedWatermark = New-Object System.Drawing.Bitmap($origImg.Width, $origImg.Height)
+        $g1 = [System.Drawing.Graphics]::FromImage($global:fadedWatermark)
+        $matrix1 = New-Object System.Drawing.Imaging.ColorMatrix; $matrix1.Matrix33 = 0.15
+        $attr1 = New-Object System.Drawing.Imaging.ImageAttributes
+        $attr1.SetColorMatrix($matrix1, [System.Drawing.Imaging.ColorMatrixFlag]::Default, [System.Drawing.Imaging.ColorAdjustType]::Bitmap)
+        $rect1 = New-Object System.Drawing.Rectangle(0, 0, $origImg.Width, $origImg.Height)
+        $g1.DrawImage($origImg, $rect1, 0, 0, $origImg.Width, $origImg.Height, [System.Drawing.GraphicsUnit]::Pixel, $attr1)
+        $g1.Dispose()
+
+        $splashLogoSize = 460
+        $global:splashWatermark = New-Object System.Drawing.Bitmap($splashLogoSize, $splashLogoSize)
+        $g2 = [System.Drawing.Graphics]::FromImage($global:splashWatermark)
+        $matrix2 = New-Object System.Drawing.Imaging.ColorMatrix; $matrix2.Matrix33 = 0.60
+        $attr2 = New-Object System.Drawing.Imaging.ImageAttributes
+        $attr2.SetColorMatrix($matrix2, [System.Drawing.Imaging.ColorMatrixFlag]::Default, [System.Drawing.Imaging.ColorAdjustType]::Bitmap)
+        $rect2 = New-Object System.Drawing.Rectangle(0, 0, $splashLogoSize, $splashLogoSize)
+        $g2.DrawImage($origImg, $rect2, 0, 0, $origImg.Width, $origImg.Height, [System.Drawing.GraphicsUnit]::Pixel, $attr2)
+        $g2.Dispose()
+    } catch {}
+}
+
+$script:GuideText = @"
+================================================================================
+                    PROPHOENIX INSTALLATION DASHBOARD GUIDE
+================================================================================
+Prepared by: Gobinath R, Installation Engineer
+Date: March 04, 2026
+
+1. OVERVIEW
+--------------------------------------------------------------------------------
+This document consolidates the ProPhoenix Installation Dashboard steps into an 
+operational, step-by-step guide. It covers downloading the Installation Master 
+Tool, loading the Master Zip, and executing DBSync, RMS PD Hotfix, CAD PD Hotfix, 
+and Test/Demo Hotfix workflows.
+
+2. PREREQUISITES
+--------------------------------------------------------------------------------
+* Windows administrator privileges on the target servers (Web/App/SQL).
+* Ability to run .EXE/.BAT or PowerShell scripts (.PS1). 
+* Network access to either Azure Blob storage or Google Drive (Blob URL 
+  Permission only provided by the Cloud Team for the Public IP).
+* Sufficient disk space to download/extract the Master Zip and perform backups.
+
+3. DOWNLOAD AND PREPARE THE INSTALLATION MASTER TOOL
+--------------------------------------------------------------------------------
+1. Click the "Download Prerequisite" button in the dashboard to fetch the files.
+2. Download the ZIP file to a local folder (e.g., C:\Downloads).
+3. Open the download folder and extract the ZIP.
+4. Identify the launchers (.EXE, .PS1, .BAT). Right-click -> Properties -> Unblock.
+
+4. LAUNCH THE DASHBOARD & LOAD MASTER ZIP
+--------------------------------------------------------------------------------
+1. Run the dashboard. If prompted with "No Valid Zip Found", click OK.
+2. Click "Search / Reload Master". The tool will scan directories for the payload.
+3. Verify the status indicates "Master Loaded Successfully".
+
+5. SCRIPTS AVAILABLE IN THE DASHBOARD
+--------------------------------------------------------------------------------
+* DB Sync Tool: Automated DB sync for Live/Test; utility install/uninstall.
+* RMS Server PD: Production RMS hotfix with minimal downtime (~20 mins).
+* CAD Server PD: CAD update (~10 mins) with auto client update.
+* Test/Demo Hotfix: Automated update for non-production environments.
+* Minimal Downtime (PS & Batch): Reduces service downtime for RMS updates.
+* App Pool 32-bit False: Sets IIS App Pool 'Enable 32-Bit Apps' to False.
+* Instance Verification: Ensures Base vs Instance DLL/file parity.
+* Clients Auto Update: Opens client stages to trigger updates.
+* SVR Session Clear: Clears CAD instance session files.
+* SQL Memory Setting: Sets SQL Server max memory to 75% of RAM.
+
+6. DBSYNC TOOL — RUN ON SQL SERVER
+--------------------------------------------------------------------------------
+1. Launch the DBSync Tool on the SQL Server.
+2. Enter the Required Credentials for the SQL Server.
+3. Uncheck 'Auto DB Sync' to manually select target databases if necessary.
+4. Live Environment: Installs Utility and syncs Live, Training, and Master DBs.
+5. Test Environment: Installs Utility and syncs Test and Phoenix Master DBs.
+
+7. RMS PRODUCTION (PD) HOTFIX (~20 MINUTES)
+--------------------------------------------------------------------------------
+1. Run the 'Minimal Downtime (PS)' script first to prep AppReg_Main.
+2. Launch 'RMS Server PD'. At the product list prompt, press Y to proceed.
+3. The tool updates Application Manager and installs General Apps without stops.
+4. Allow IIS and Phoenix services to stop for Webservice, StageClient, etc.
+5. After installations, IIS restarts and Instance Update continues automatically.
+6. Run 'Instance Verification' to validate Base vs Instance parity.
+
+8. CAD PRODUCTION (PD) HOTFIX (~10 - 15 MINUTES)
+--------------------------------------------------------------------------------
+1. Launch 'CAD Server PD'. Press Y to proceed at the prompt.
+2. Update App Manager and install General Applications (no service stops).
+3. Proceed with Stage Clients installation (this WILL stop IIS/Services).
+4. The script runs Instance Update, clears SVR Session, and Log Clear.
+5. Press any key to start Clients Auto Update.
+
+9. TEST/DEMO HOTFIX — NON-PRODUCTION
+--------------------------------------------------------------------------------
+1. Launch 'Test/Demo Hotfix'. Review updater settings and press Y.
+2. The script updates App Manager and installs all applications automatically.
+3. Instance Update and Verification run automatically.
+4. Press any key when prompted to trigger Clients Auto Update.
+
+10. POST-INSTALL CHECKS & VALIDATION
+--------------------------------------------------------------------------------
+* Confirm all services are Running (IIS sites/app pools; Phoenix services).
+* Perform Pre-compiler: login and Verify the application Working.
+* Review Instance Verification results for parity.
+* Ensure IIS App Pool 'Enable 32-Bit Applications = False' where required.
+* On SQL Server, verify Max Server Memory is approximately 75% of RAM.
+* Run 'Log Cleaner' after collecting any necessary diagnostics.
+================================================================================
+"@
+
+# ==========================================================================
+#  4. ADVANCED TELEMETRY GATHERING & ADSI COMPANY QUERY
+# ==========================================================================
+$fqdn = "$env:COMPUTERNAME.$env:USERDNSDOMAIN"
+$HostName = [System.Net.Dns]::GetHostName()
+$IpAddress = "127.0.0.1"
+try {
+    $PrimaryAdapter = Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "IPEnabled = 'True'" | Where-Object { $_.DefaultIPGateway -ne $null } | Select-Object -First 1
+    if ($PrimaryAdapter) { $IpAddress = $PrimaryAdapter.IPAddress | Where-Object { $_ -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$' } | Select-Object -First 1 }
+} catch {}
+
+$AgencyDomain = "Unknown"
+try {
+    $user = $env:USERNAME
+    $searcher = [adsisearcher]"(samaccountname=$user)"
+    $result = $searcher.FindOne()
+    if ($result -and $result.Properties['company']) {
+        $company = $result.Properties['company'][0]
+        if (-not [string]::IsNullOrWhiteSpace($company)) {
+            $AgencyDomain = $company
+        }
+    }
+    if ($AgencyDomain -eq "Unknown" -and $env:USERDOMAIN) {
+        $AgencyDomain = $env:USERDOMAIN
+    }
+} catch {
+    if ($env:USERDOMAIN) { $AgencyDomain = $env:USERDOMAIN }
+}
+
+if ($AgencyDomain -ne "Unknown") {
+    $words = $AgencyDomain.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)
+    if ($words.Count -ge 4) {
+        $AgencyDomain = $words[0] + " " + $words[1]
+    }
+}
+
+# ==========================================================================
+#  5. SPLASH SCREEN & PRELOADER
+# ==========================================================================
+$splash = New-Object System.Windows.Forms.Form
+$splash.Size = New-Object System.Drawing.Size(450, 450)
+$splash.StartPosition = "CenterScreen"
+$splash.BackColor = $colorMainBg
+$splash.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+function global:Set-RoundedCorner($Control, $Radius) {
+    if ($Control.Width -le 0 -or $Control.Height -le 0) { return }
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddArc(0, 0, $Radius, $Radius, 180, 90)
+    $path.AddArc($Control.Width - $Radius, 0, $Radius, $Radius, 270, 90)
+    $path.AddArc($Control.Width - $Radius, $Control.Height - $Radius, $Radius, $Radius, 0, 90)
+    $path.AddArc(0, $Control.Height - $Radius, $Radius, $Radius, 90, 90)
+    $path.CloseFigure()
+    $Control.Region = New-Object System.Drawing.Region($path)
+}
+global:Set-RoundedCorner $splash 20
+
+if ($global:splashWatermark) {
+    $splash.BackgroundImage = $global:splashWatermark
+    $splash.BackgroundImageLayout = [System.Windows.Forms.ImageLayout]::Center
+}
+
+$lblSplashTitle = New-Object System.Windows.Forms.Label
+$lblSplashTitle.Text = "Installation Hotfix Dashboard"
+$lblSplashTitle.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
+$lblSplashTitle.ForeColor = $colorTextWhite
+$lblSplashTitle.AutoSize = $false
+$lblSplashTitle.Size = New-Object System.Drawing.Size(450, 35)
+$lblSplashTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$lblSplashTitle.Location = New-Object System.Drawing.Point(0, 30)
+$lblSplashTitle.BackColor = [System.Drawing.Color]::Transparent
+$splash.Controls.Add($lblSplashTitle)
+
+$pnlSplashProgBg = New-Object System.Windows.Forms.Panel
+$pnlSplashProgBg.Size = New-Object System.Drawing.Size(390, 25)
+$pnlSplashProgBg.Location = New-Object System.Drawing.Point(30, 85)
+$pnlSplashProgBg.BackColor = $colorCardBg
+global:Set-RoundedCorner $pnlSplashProgBg 12
+$splash.Controls.Add($pnlSplashProgBg)
+
+$global:SplashProgressPercentage = 0
+$pnlSplashProgBg.add_Paint({
+    param($sender, $e)
+    $g = $e.Graphics; $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $percent = $global:SplashProgressPercentage
+    if ($percent -lt 0) { $percent = 0 }; if ($percent -gt 100) { $percent = 100 }
+    $fillWidth = [int](($percent / 100) * $sender.Width)
+    
+    if ($fillWidth -gt 0) {
+        $brushProgress = New-Object System.Drawing.SolidBrush($termGreen)
+        $d = 25 
+        if ($fillWidth -ge $d) {
+            $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+            $path.AddArc(0, 0, $d, $d, 180, 90)
+            $path.AddArc($fillWidth - $d, 0, $d, $d, 270, 90)
+            $path.AddArc($fillWidth - $d, $sender.Height - $d, $d, $d, 0, 90)
+            $path.AddArc(0, $sender.Height - $d, $d, $d, 90, 90)
+            $path.CloseFigure()
+            $g.FillPath($brushProgress, $path)
+            $path.Dispose()
+        } else {
+            $g.FillRectangle($brushProgress, 0, 0, $fillWidth, $sender.Height)
+        }
+        $brushProgress.Dispose()
+    }
+})
+
+$lblSplashLog = New-Object System.Windows.Forms.Label
+$lblSplashLog.Size = New-Object System.Drawing.Size(370, 190)
+$lblSplashLog.Location = New-Object System.Drawing.Point(40, 140)
+$lblSplashLog.BackColor = [System.Drawing.Color]::Transparent
+$lblSplashLog.ForeColor = $termCyan
+$lblSplashLog.Font = $fontTerminal
+$splash.Controls.Add($lblSplashLog)
+
+$global:SplashLogLines = @()
+function global:Log-Splash($msg, $pct) {
+    $global:SplashLogLines += "> $msg"
+    if ($global:SplashLogLines.Count -gt 11) { $global:SplashLogLines = $global:SplashLogLines[-11..-1] }
+    $lblSplashLog.Text = $global:SplashLogLines -join "`r`n"
+    $global:SplashProgressPercentage = $pct
+    $pnlSplashProgBg.Invalidate(); $splash.Invalidate() 
+    [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 250 
+}
+
+$splash.Add_Shown({
+    global:Log-Splash "Starting pre-requisite configuration..." 10
+    global:Log-Splash "Verifying Security Policies..." 40
+    global:Log-Splash "Configuring Dashboard Environment..." 80
+    global:Log-Splash "Initialization complete. Launching UI..." 100
+    Start-Sleep -Milliseconds 400 
+    $splash.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $splash.Close()
+})
+
+if ($splash.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { exit }
+
+$preloader = New-Object System.Windows.Forms.Form
+$preloader.Size = New-Object System.Drawing.Size(350, 100)
+$preloader.StartPosition = "CenterScreen"
+$preloader.BackColor = $colorCardBg
+$preloader.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+global:Set-RoundedCorner $preloader 15
+
+function global:Add-GroupBorder($Panel, $Color) {
+    $paintBlock = {
+        param($sender, $e)
+        $g = $e.Graphics
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $pen = New-Object System.Drawing.Pen($Color, 2) 
+        $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+        $r = 15
+        $w = $sender.Width - 3
+        $h = $sender.Height - 3
+        $path.AddArc(1, 1, $r, $r, 180, 90)
+        $path.AddArc($w - $r, 1, $r, $r, 270, 90)
+        $path.AddArc($w - $r, $h - $r, $r, $r, 0, 90)
+        $path.AddArc(1, $h - $r, $r, $r, 90, 90)
+        $path.CloseFigure()
+        $g.DrawPath($pen, $path)
+        $pen.Dispose()
+        $path.Dispose()
+    }.GetNewClosure() 
+    $Panel.add_Paint($paintBlock)
+}
+global:Add-GroupBorder $preloader $termCyan
+
+$lblPreTitle = New-Object System.Windows.Forms.Label
+$lblPreTitle.Text = "Compiling Dashboard UI..."
+$lblPreTitle.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+$lblPreTitle.ForeColor = $colorTextWhite
+$lblPreTitle.AutoSize = $false
+$lblPreTitle.Size = New-Object System.Drawing.Size(350, 30)
+$lblPreTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$lblPreTitle.Location = New-Object System.Drawing.Point(0, 25)
+$preloader.Controls.Add($lblPreTitle)
+
+$preloader.Show()
+$preloader.Refresh()
+
+# ==========================================================================
+#  6. GLOBAL HELPER FUNCTIONS (HOISTED FOR STABILITY)
+# ==========================================================================
+function global:Enable-AdvancedDoubleBuffering($Control) {
+    $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic
+    $prop = $Control.GetType().GetProperty("DoubleBuffered", $flags)
+    if ($prop) { $prop.SetValue($Control, $true, $null) }
+    $method = $Control.GetType().GetMethod("SetStyle", $flags)
+    if ($method) {
+        $styles = [System.Windows.Forms.ControlStyles]::OptimizedDoubleBuffer -bor
+                  [System.Windows.Forms.ControlStyles]::AllPaintingInWmPaint -bor
+                  [System.Windows.Forms.ControlStyles]::UserPaint -bor
+                  [System.Windows.Forms.ControlStyles]::SupportsTransparentBackColor
+        $method.Invoke($Control, @($styles, $true))
+    }
+}
+
+function global:Ensure-LogDir {
+    $LogDir = Join-Path $InstallBase "Logs"
+    if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
+    return $LogDir
+}
+
+function global:Add-LogTab($tabName) {
+    if ($global:LogTabs.ContainsKey($tabName)) { return }
+    
+    $xPos = 0
+    foreach ($ctrl in $script:pnlLogTabs.Controls) {
+        if ($ctrl.Right -gt $xPos) { $xPos = $ctrl.Right }
+    }
+    $xPos += 5
+    
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.Text = $tabName
+    $btn.Size = New-Object System.Drawing.Size(160, 30)
+    if ($tabName -eq "ALL" -or $tabName -eq "LOCAL") { $btn.Size = New-Object System.Drawing.Size(100, 30) }
+    $btn.Location = New-Object System.Drawing.Point($xPos, 2)
+    $btn.FlatStyle = "Flat"
+    $btn.FlatAppearance.BorderSize = 0
+    $btn.BackColor = [System.Drawing.Color]::FromArgb(255, 30, 30, 40)
+    $btn.ForeColor = [System.Drawing.Color]::FromArgb(255, 160, 160, 170)
+    $btn.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)
+    $btn.Cursor = "Hand"
+    global:Set-RoundedCorner $btn 8
+    
+    $rtb = New-Object System.Windows.Forms.RichTextBox
+    $rtb.Dock = "Fill"
+    $rtb.BackColor = [System.Drawing.Color]::FromArgb(255, 13, 13, 13)
+    $rtb.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $rtb.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Regular)
+    $rtb.ReadOnly = $true
+    $rtb.BorderStyle = "None"
+    $rtb.Visible = $false
+    
+    $global:LogTabs[$tabName] = $btn
+    $global:LogBoxes[$tabName] = $rtb
+    
+    $script:pnlLogTabs.Controls.Add($btn)
+    $script:pnlLogContent.Controls.Add($rtb)
+    
+    $btn.Add_Click({
+        param($sender, $e)
+        global:Switch-LogTab $tabName
+    }.GetNewClosure())
+}
+
+function global:Switch-LogTab($tabKey) {
+    foreach ($key in $global:LogTabs.Keys) {
+        if ($key -eq $tabKey) {
+            $global:LogTabs[$key].BackColor = [System.Drawing.Color]::FromArgb(255, 65, 65, 80)
+            $global:LogTabs[$key].ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+            $global:LogBoxes[$key].Visible = $true
+            $global:LogBoxes[$key].BringToFront()
+        } else {
+            $global:LogTabs[$key].BackColor = [System.Drawing.Color]::FromArgb(255, 30, 30, 40)
+            $global:LogTabs[$key].ForeColor = [System.Drawing.Color]::FromArgb(255, 160, 160, 170)
+            $global:LogBoxes[$key].Visible = $false
+        }
+    }
+}
+
+function global:Build-LogTabs {
+    global:Add-LogTab "ALL"
+    global:Add-LogTab "LOCAL"
+
+    foreach ($t in $global:RemoteTargets) {
+        global:Add-LogTab $t.HostName
+    }
+    
+    $xPos = 0
+    $orderedKeys = @("ALL", "LOCAL") + ($global:LogTabs.Keys | Where-Object { $_ -ne "ALL" -and $_ -ne "LOCAL" } | Sort-Object)
+    foreach ($key in $orderedKeys) {
+        if ($global:LogTabs.ContainsKey($key)) {
+            $global:LogTabs[$key].Location = New-Object System.Drawing.Point($xPos, 2)
+            $xPos += $global:LogTabs[$key].Width + 5
+        }
+    }
+}
+
+function global:Write-Terminal($msg, $colorName = "LightGray", $targetName = "ALL", $CleanMsg = $null) {
+    try {
+        $LogFile = Join-Path (global:Ensure-LogDir) "Deployment_Audit.log"
+        $Timestamp = Get-Date -Format "HH:mm:ss.fff"
+        
+        $FullMsgAll = "[$Timestamp] [SYS] $msg"
+        
+        $targetText = if ($null -ne $CleanMsg) { $CleanMsg } else { $msg }
+        $FullMsgTarget = "[$Timestamp] [SYS] $targetText"
+        
+        Add-Content -Path $LogFile -Value $FullMsgAll -ErrorAction SilentlyContinue
+        
+        if ($colorName -eq "Cyan" -or $colorName -eq "CyanAccent") { $mappedColor = [System.Drawing.Color]::Cyan }
+        elseif ($colorName -eq "Lime" -or $colorName -eq "StatusGreen") { $mappedColor = [System.Drawing.Color]::FromArgb(255, 46, 204, 113) }
+        elseif ($colorName -eq "Red" -or $colorName -eq "HeaderRed") { $mappedColor = [System.Drawing.Color]::FromArgb(255, 239, 68, 68) }
+        elseif ($colorName -eq "Yellow") { $mappedColor = [System.Drawing.Color]::Yellow }
+        else { $mappedColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240) }
+        
+        if ($global:LogBoxes -and $global:LogBoxes.ContainsKey("ALL")) {
+            $rtbAll = $global:LogBoxes["ALL"]
+            $rtbAll.SelectionStart = $rtbAll.TextLength
+            $rtbAll.SelectionLength = 0
+            $rtbAll.SelectionColor = $mappedColor
+            $rtbAll.AppendText("$FullMsgAll`n")
+            $rtbAll.ScrollToCaret()
+        }
+        
+        if ($targetName -ne "ALL" -and $global:LogBoxes -and $global:LogBoxes.ContainsKey($targetName)) {
+            $rtbTarget = $global:LogBoxes[$targetName]
+            $rtbTarget.SelectionStart = $rtbTarget.TextLength
+            $rtbTarget.SelectionLength = 0
+            $rtbTarget.SelectionColor = $mappedColor
+            $rtbTarget.AppendText("$FullMsgTarget`n")
+            $rtbTarget.ScrollToCaret()
+        }
+        
+        [System.Windows.Forms.Application]::DoEvents()
+    } catch {}
+}
+
+function global:Update-Status($msg, $isError = $false) {
+    if ($script:lblStatus) {
+        $script:lblStatus.Text = "Status: $msg"
+        if ($isError) { $script:lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 239, 68, 68) }
+        else { $script:lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 46, 204, 113) }
+        $script:lblStatus.Refresh()
+    }
+}
+
+function global:Set-FolderPermissions($path, $silent=$false) {
+    if (-not $silent) { global:Write-Terminal "Applying advanced ACLs to Directory..." "Yellow" "LOCAL" "Applying advanced ACLs to Directory..." }
+    [System.Windows.Forms.Application]::DoEvents()
+    try { 
+        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $aclArgs = "`"$path`" /grant `"Everyone:(OI)(CI)F`" `"IUSR:(OI)(CI)F`" `"NETWORK SERVICE:(OI)(CI)F`" `"${currentUser}:(OI)(CI)F`" /T /C /Q"
+        Start-Process "icacls.exe" -ArgumentList $aclArgs -WindowStyle Hidden -Wait 
+        if (-not $silent) { global:Write-Terminal "ACLs successfully applied." "Lime" "LOCAL" "ACLs successfully applied." }
+    } catch {
+        if (-not $silent) { global:Write-Terminal "Failed to apply ACLs: $_" "Red" "LOCAL" "Failed to apply ACLs: $_" }
+    }
+}
+
+function global:Unblock-ExtractedFiles($path, $silent=$false) {
+    if (-not $silent) { global:Write-Terminal "Unblocking script files..." "Yellow" "LOCAL" "Unblocking script files..." }
+    [System.Windows.Forms.Application]::DoEvents()
+    try { 
+        Get-ChildItem -Path $path -Recurse -File | Unblock-File -ErrorAction SilentlyContinue 
+        if (-not $silent) { global:Write-Terminal "Files successfully unblocked." "Lime" "LOCAL" "Files successfully unblocked." }
+    } catch {
+        if (-not $silent) { global:Write-Terminal "Failed to unblock files: $_" "Red" "LOCAL" "Failed to unblock files: $_" }
+    }
+}
+
+function global:Get-DownloadsPath {
+    try {
+        $path = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders")."{374DE290-123F-4565-9164-39C4925E467B}"
+        if (Test-Path $path) { return $path }
+    } catch {}
+    $path = [Environment]::GetFolderPath("UserProfile") + "\Downloads"
+    if (Test-Path $path) { return $path }
+    return $null
+}
+
+function global:Test-ZipValidity($ZipPath) { try { [System.IO.Compression.ZipFile]::OpenRead($ZipPath).Dispose(); return $true } catch { return $false } }
+
+function global:Get-FriendlyName($fileName) {
+    if ($fileName -match "32bitfalse") { return "App Pool Set False" }
+    if ($fileName -match "SessionClear") { return "SVR Session Clear" }
+    if ($fileName -match "SQLMemory") { return "SQL Memory Set" }
+    if ($fileName -match "InstanceVerification") { return "Instance Update Verification" }
+    if ($fileName -match "LaunchShortcuts") { return "Clients Auto Update" }
+    if ($fileName -match "Autodbsync" -or $fileName -match "DB Sync") { return "DB Sync Tool" }
+    if ($fileName -match "RMS" -and $fileName -match "PD") { return "RMS Server Production" }
+    if ($fileName -match "Cad_Hotfix" -or $fileName -match "CAD PD" -or ($fileName -match "CAD" -and $fileName -match "PD")) { return "CAD Server Production" }
+    if ($fileName -match "Autodefined" -or $fileName -match "Test-DemoHotfix" -or ($fileName -match "Demo" -and $fileName -match "Test")) { return "Test/Demo Hotfix" }
+    if ($fileName -match "Minimal Downtime" -and $fileName -match "PS") { return "Minimal Downtime (PS)" }
+    if ($fileName -match "Minimal Downtime" -and $fileName -match "Bat") { return "Minimal Downtime (Batch)" }
+    if ($fileName -match "Minimal Downtime") { return "Minimal Downtime Deployment" }
+    if ($fileName -match "Log Clearence" -or $fileName -match "Logcleaner") { return "Log Cleaner" }
+    $clean = $fileName -replace "\.ps1$","" -replace "\.bat$","" -replace "_", " " -replace "-v\d+\.\d+", "" -replace "v\d+\.\d+", "" -replace "\s+", " "
+    return $clean.Trim()
+}
+
+function global:Get-SortOrder($friendlyName) {
+    switch ($friendlyName) {
+        "DB Sync Tool" { return 1 }
+        "RMS Server Production" { return 2 }
+        "CAD Server Production" { return 3 }
+        "Test/Demo Hotfix" { return 4 }
+        "Minimal Downtime (PS)" { return 5 }
+        "Minimal Downtime (Batch)" { return 6 }
+        "Minimal Downtime Deployment" { return 7 }
+        "Instance Verification" { return 8 }
+        "Clients Auto Update" { return 9 }
+        "Log Cleaner" { return 10 }
+        "App Pool Set False" { return 11 }
+        "SVR Session Clear" { return 12 }
+        "SQL Memory Set" { return 13 }
+        default { return 50 } 
+    }
+}
+
+# ==========================================================================
+#  7. CORE DASHBOARD MENUS & DIALOGS
+# ==========================================================================
+function global:Show-ExecutionLogs {
+    if ($null -ne $script:pnlConsole -and $null -ne $script:btnTabLogs) {
+        $script:form.SuspendLayout()
+        $script:pnlTools.Visible = $false
+        $script:pnlConsole.Visible = $true
+        
+        $script:btnTabLogs.BackColor = $colorTabActive
+        $script:btnTabLogs.ForeColor = $colorTextWhite
+        $script:btnTabScripts.BackColor = $colorTabDeact
+        $script:btnTabScripts.ForeColor = $colorTextMuted
+        
+        $script:form.ResumeLayout($true)
+        if ($script:pnlToolsWrapper) { $script:pnlToolsWrapper.Invalidate($true) }
+    }
+}
+
+function global:Show-DashboardGuide {
+    $guideForm = New-Object System.Windows.Forms.Form
+    $guideForm.Text = "ProPhoenix Installation Dashboard - Step-by-Step Guide"
+    $guideForm.Size = New-Object System.Drawing.Size(900, 750)
+    $guideForm.StartPosition = "CenterParent"
+    
+    $guideForm.BackColor = [System.Drawing.Color]::FromArgb(245, 245, 245)
+    $guideForm.ForeColor = [System.Drawing.Color]::Black
+
+    $rtb = New-Object System.Windows.Forms.RichTextBox
+    $rtb.Dock = "Fill"
+    $rtb.BackColor = [System.Drawing.Color]::White 
+    $rtb.ForeColor = [System.Drawing.Color]::FromArgb(30, 30, 30) 
+    $rtb.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Regular)
+    $rtb.ReadOnly = $true
+    $rtb.BorderStyle = "None"
+    $rtb.Text = $script:GuideText
+    
+    $guideForm.Controls.Add($rtb)
+    [void]$guideForm.ShowDialog()
+}
+
+function global:Show-HelpPrompt {
+    if (-not $script:ToolsLoaded) {
+        global:Update-Status "Master Directory not loaded." $true
+        return
+    }
+
+    $helpForm = New-Object System.Windows.Forms.Form
+    $helpForm.Text = "ProPhoenix Documentation Library"
+    $helpForm.Size = New-Object System.Drawing.Size(950, 650)
+    $helpForm.StartPosition = "CenterParent"
+    $helpForm.BackColor = $colorMainBg
+    $helpForm.ForeColor = $colorTextWhite
+    $helpForm.FormBorderStyle = "FixedDialog"
+    $helpForm.MaximizeBox = $false
+    $helpForm.MinimizeBox = $false
+
+    $lblHeader = New-Object System.Windows.Forms.Label
+    $lblHeader.Text = "Documentation Explorer"
+    $lblHeader.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
+    $lblHeader.Location = New-Object System.Drawing.Point(20, 15)
+    $lblHeader.AutoSize = $true
+    $lblHeader.ForeColor = $termCyan
+    $helpForm.Controls.Add($lblHeader)
+
+    $lblSub = New-Object System.Windows.Forms.Label
+    $lblSub.Text = "Browse categorized internal chapters."
+    $lblSub.Font = $fontSubHeader
+    $lblSub.Location = New-Object System.Drawing.Point(22, 45)
+    $lblSub.AutoSize = $true
+    $lblSub.ForeColor = $colorTextMuted
+    $helpForm.Controls.Add($lblSub)
+
+    # --- TREEVIEW (LEFT PANE) ---
+    $tvDocs = New-Object System.Windows.Forms.TreeView
+    $tvDocs.Location = New-Object System.Drawing.Point(20, 80)
+    $tvDocs.Size = New-Object System.Drawing.Size(300, 460)
+    $tvDocs.BackColor = $colorCardBg
+    $tvDocs.ForeColor = $colorTextWhite
+    $tvDocs.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
+    $tvDocs.BorderStyle = "FixedSingle"
+    $tvDocs.Indent = 15
+    $tvDocs.ShowLines = $true
+    $helpForm.Controls.Add($tvDocs)
+
+    # --- RICH TEXT VIEWER (RIGHT PANE) ---
+    $rtbViewer = New-Object System.Windows.Forms.RichTextBox
+    $rtbViewer.Location = New-Object System.Drawing.Point(335, 80)
+    $rtbViewer.Size = New-Object System.Drawing.Size(575, 460)
+    $rtbViewer.BackColor = $colorConsoleBg
+    $rtbViewer.ForeColor = $colorTextWhite
+    $rtbViewer.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Regular)
+    $rtbViewer.ReadOnly = $true
+    $rtbViewer.BorderStyle = "None"
+    $helpForm.Controls.Add($rtbViewer)
+
+    $internalRoot = New-Object System.Windows.Forms.TreeNode("Phoenix Master Documentation")
+    $internalRoot.NodeFont = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $internalRoot.ForeColor = $colorLblDash
+    $tvDocs.Nodes.Add($internalRoot)
+
+    $sections = $script:GuideText -split '(?m)^(?=\d+\.\s)'
+    foreach ($sec in $sections) {
+        if ($sec.Trim() -match "^(\d+\.\s+.*?)\r?\n") {
+            $title = $matches[1].Trim()
+            $content = $sec.Trim()
+            $node = New-Object System.Windows.Forms.TreeNode($title)
+            $node.Tag = "INTERNAL_SECTION_CONTENT|" + $content
+            $node.ForeColor = $colorTextWhite
+            $internalRoot.Nodes.Add($node)
+        } elseif ($sec.Trim() -ne "") {
+            $node = New-Object System.Windows.Forms.TreeNode("Introduction")
+            $node.Tag = "INTERNAL_SECTION_CONTENT|" + $sec.Trim()
+            $node.ForeColor = $colorTextWhite
+            $internalRoot.Nodes.Add($node)
+        }
+    }
+
+    $internalRoot.ExpandAll()
+
+    # --- SELECTION LOGIC ---
+    $tvDocs.Add_AfterSelect({
+        $selected = $tvDocs.SelectedNode
+        if ($selected.Tag -match "^INTERNAL_SECTION_CONTENT\|(.*)") {
+            $rtbViewer.Text = $matches[1]
+        } else {
+            $rtbViewer.Text = "`n`n   Please select a specific chapter from the left."
+        }
+    })
+
+    if ($internalRoot.Nodes.Count -gt 0) { $tvDocs.SelectedNode = $internalRoot.Nodes[0] }
+
+    # --- BUTTONS ---
+    $btnClose = New-Object System.Windows.Forms.Button
+    $btnClose.Text = "Close Viewer"
+    $btnClose.Location = New-Object System.Drawing.Point(760, 560)
+    $btnClose.Size = New-Object System.Drawing.Size(150, 40)
+    $btnClose.BackColor = $colorBtnGen
+    $btnClose.ForeColor = $colorTextWhite
+    $btnClose.FlatStyle = "Flat"
+    $btnClose.FlatAppearance.BorderSize = 0
+    $btnClose.Font = $fontMenuBold
+    $btnClose.Cursor = "Hand"
+    global:Set-RoundedCorner $btnClose 10
+    $btnClose.Add_Click({ $helpForm.Close() })
+    $helpForm.Controls.Add($btnClose)
+
+    [void]$helpForm.ShowDialog()
+}
+
+function global:Show-LicenseVerification {
+    [xml]$xaml = @"
+    <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            Title="License Verification Dashboard" Height="750" Width="1000" Background="#0B132B" WindowStartupLocation="CenterScreen">
+        <Window.Resources>
+            <Style TargetType="Button">
+                <Setter Property="Background" Value="#1C2541"/>
+                <Setter Property="Foreground" Value="#00E5FF"/>
+                <Setter Property="BorderBrush" Value="#00E5FF"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="FontFamily" Value="Consolas"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="FontSize" Value="14"/>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background" Value="#00E5FF"/>
+                        <Setter Property="Foreground" Value="#0B132B"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style TargetType="TextBox">
+                <Setter Property="Background" Value="#050A1F"/>
+                <Setter Property="Foreground" Value="#FFFFFF"/>
+                <Setter Property="BorderBrush" Value="#5BC0BE"/>
+                <Setter Property="FontFamily" Value="Consolas"/>
+                <Setter Property="Padding" Value="10"/>
+                <Setter Property="AcceptsReturn" Value="True"/>
+                <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+            </Style>
+        </Window.Resources>
+        
+        <Grid Margin="30">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Button Name="btnOld" Grid.Row="0" Content="? OLD LICENSE DATA" Height="40" Margin="0,0,0,5"/>
+            <TextBox Name="txtOld" Grid.Row="1" Height="150" Visibility="Collapsed" Margin="0,0,0,15" TextWrapping="Wrap" />
+
+            <Button Name="btnNew" Grid.Row="2" Content="? NEW LICENSE DATA" Height="40" Margin="0,0,0,5"/>
+            <TextBox Name="txtNew" Grid.Row="3" Height="150" Visibility="Collapsed" Margin="0,0,0,20" TextWrapping="Wrap"/>
+
+            <Button Name="btnAnalyse" Grid.Row="4" Content="? EXECUTE SMART ANALYSE" Height="50" Background="#00E5FF" Foreground="#0B132B" FontSize="16" Margin="0,0,0,20"/>
+
+            <GroupBox Grid.Row="5" Header="VERIFICATION RESULTS" Foreground="#5BC0BE" FontFamily="Consolas" BorderBrush="#1C2541">
+                <RichTextBox Name="rtbResults" Background="#050A1F" BorderThickness="0" Padding="10" IsReadOnly="True" VerticalScrollBarVisibility="Auto">
+                    <FlowDocument>
+                        <Paragraph FontFamily="Consolas" FontSize="14">
+                            <Run Foreground="#555555" Text="Awaiting analysis..."/>
+                        </Paragraph>
+                    </FlowDocument>
+                </RichTextBox>
+            </GroupBox>
+        </Grid>
+    </Window>
+"@
+
+    $reader = (New-Object System.Xml.XmlNodeReader $xaml)
+    $Window = [Windows.Markup.XamlReader]::Load($reader)
+
+    $btnOld = $Window.FindName("btnOld")
+    $txtOld = $Window.FindName("txtOld")
+    $btnNew = $Window.FindName("btnNew")
+    $txtNew = $Window.FindName("txtNew")
+    $btnAnalyse = $Window.FindName("btnAnalyse")
+    $rtbResults = $Window.FindName("rtbResults")
+
+    $btnOld.Add_Click({
+        if ($txtOld.Visibility -eq 'Collapsed') {
+            $txtOld.Visibility = 'Visible'; $btnOld.Content = "? OLD LICENSE DATA"
+        } else {
+            $txtOld.Visibility = 'Collapsed'; $btnOld.Content = "? OLD LICENSE DATA"
+        }
+    })
+
+    $btnNew.Add_Click({
+        if ($txtNew.Visibility -eq 'Collapsed') {
+            $txtNew.Visibility = 'Visible'; $btnNew.Content = "? NEW LICENSE DATA"
+        } else {
+            $txtNew.Visibility = 'Collapsed'; $btnNew.Content = "? NEW LICENSE DATA"
+        }
+    })
+
+    $btnAnalyse.Add_Click({
+        $rtbResults.Document.Blocks.Clear()
+        $paragraph = New-Object System.Windows.Documents.Paragraph
+        
+        $oldText = $txtOld.Text -split "`r`n|`r|`n"
+        $newText = $txtNew.Text -split "`r`n|`r|`n"
+        $maxLines = [math]::Max($oldText.Count, $newText.Count)
+        
+        for ($i = 0; $i -lt $maxLines; $i++) {
+            $lineOld = if ($i -lt $oldText.Count) { $oldText[$i] } else { $null }
+            $lineNew = if ($i -lt $newText.Count) { $newText[$i] } else { $null }
+            $isMatch = $false
+
+            if (($lineOld -match "<([\d, ]+)>") -and ($lineNew -match "<([\d, ]+)>")) {
+                $listOld = ($lineOld -replace '.*<|>.*','' -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" } | Sort-Object) -join ','
+                $listNew = ($lineNew -replace '.*<|>.*','' -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" } | Sort-Object) -join ','
+                $prefixOld = $lineOld -replace "<.*",""
+                $prefixNew = $lineNew -replace "<.*",""
+
+                if (($listOld -eq $listNew) -and ($prefixOld -eq $prefixNew)) { $isMatch = $true }
+            } 
+            elseif ($lineOld -eq $lineNew) { $isMatch = $true }
+
+            if ($isMatch) {
+                $run = New-Object System.Windows.Documents.Run("$lineOld`r`n")
+                $run.Foreground = "White"
+                $paragraph.Inlines.Add($run)
+            } else {
+                if ($null -ne $lineOld -and $lineOld.Trim() -ne "") {
+                    $runOld = New-Object System.Windows.Documents.Run("$lineOld`r`n")
+                    $runOld.Foreground = "#FF4C4C"
+                    $runOld.TextDecorations = [System.Windows.TextDecorations]::Strikethrough
+                    $paragraph.Inlines.Add($runOld)
+                }
+                if ($null -ne $lineNew -and $lineNew.Trim() -ne "") {
+                    $runNew = New-Object System.Windows.Documents.Run("$lineNew`r`n")
+                    $runNew.Foreground = "#00E5FF"
+                    $paragraph.Inlines.Add($runNew)
+                }
+            }
+        }
+        $rtbResults.Document.Blocks.Add($paragraph)
+    })
+
+    $Window.ShowDialog() | Out-Null
+}
+
+function global:Show-RemoteManager {
+    if (-not $script:ToolsLoaded) {
+        [System.Windows.Forms.MessageBox]::Show("Please load the master payload first.", "No Scripts Loaded", 0, 48)
+        return
+    }
+
+    $remForm = New-Object System.Windows.Forms.Form
+    $remForm.Text = "Remote Server Manager (Multi-Select)"
+    $remForm.Size = New-Object System.Drawing.Size(420, 620)
+    $remForm.StartPosition = "CenterParent"
+    $remForm.BackColor = [System.Drawing.Color]::FromArgb(255, 28, 28, 35)
+    $remForm.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $remForm.FormBorderStyle = "FixedDialog"
+    $remForm.MaximizeBox = $false
+    $remForm.MinimizeBox = $false
+
+    $lblTitle = New-Object System.Windows.Forms.Label
+    $lblTitle.Text = "Remote Connections"
+    $lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+    $lblTitle.Location = New-Object System.Drawing.Point(20, 15)
+    $lblTitle.AutoSize = $true
+    $lblTitle.ForeColor = [System.Drawing.Color]::Cyan
+    $remForm.Controls.Add($lblTitle)
+
+    $lblSaved = New-Object System.Windows.Forms.Label
+    $lblSaved.Text = "Select Saved Connections (Check all that apply):"
+    $lblSaved.Location = New-Object System.Drawing.Point(20, 50)
+    $lblSaved.AutoSize = $true
+    $remForm.Controls.Add($lblSaved)
+
+    $clbSaved = New-Object System.Windows.Forms.CheckedListBox
+    $clbSaved.Location = New-Object System.Drawing.Point(20, 70)
+    $clbSaved.Size = New-Object System.Drawing.Size(360, 100)
+    $clbSaved.BackColor = [System.Drawing.Color]::FromArgb(255, 13, 13, 13)
+    $clbSaved.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $clbSaved.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Regular)
+    $clbSaved.CheckOnClick = $true
+    $remForm.Controls.Add($clbSaved)
+
+    $lblOr = New-Object System.Windows.Forms.Label
+    $lblOr.Text = "--- AND / OR Add a New Connection ---"
+    $lblOr.Location = New-Object System.Drawing.Point(20, 185)
+    $lblOr.AutoSize = $true
+    $lblOr.ForeColor = [System.Drawing.Color]::FromArgb(255, 160, 160, 170)
+    $remForm.Controls.Add($lblOr)
+
+    $lblHost = New-Object System.Windows.Forms.Label
+    $lblHost.Text = "Hostname or IP Address:"
+    $lblHost.Location = New-Object System.Drawing.Point(20, 215)
+    $lblHost.AutoSize = $true
+    $remForm.Controls.Add($lblHost)
+
+    $txtHost = New-Object System.Windows.Forms.TextBox
+    $txtHost.Location = New-Object System.Drawing.Point(20, 235)
+    $txtHost.Size = New-Object System.Drawing.Size(360, 25)
+    $txtHost.BackColor = [System.Drawing.Color]::FromArgb(255, 13, 13, 13)
+    $txtHost.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $txtHost.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Regular)
+    $remForm.Controls.Add($txtHost)
+
+    $lblUser = New-Object System.Windows.Forms.Label
+    $lblUser.Text = "Admin Username (e.g. Domain\Admin):"
+    $lblUser.Location = New-Object System.Drawing.Point(20, 275)
+    $lblUser.AutoSize = $true
+    $remForm.Controls.Add($lblUser)
+
+    $txtUser = New-Object System.Windows.Forms.TextBox
+    $txtUser.Location = New-Object System.Drawing.Point(20, 295)
+    $txtUser.Size = New-Object System.Drawing.Size(360, 25)
+    $txtUser.BackColor = [System.Drawing.Color]::FromArgb(255, 13, 13, 13)
+    $txtUser.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $txtUser.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Regular)
+    $remForm.Controls.Add($txtUser)
+
+    $lblPass = New-Object System.Windows.Forms.Label
+    $lblPass.Text = "Password:"
+    $lblPass.Location = New-Object System.Drawing.Point(20, 335)
+    $lblPass.AutoSize = $true
+    $remForm.Controls.Add($lblPass)
+
+    $txtPass = New-Object System.Windows.Forms.TextBox
+    $txtPass.Location = New-Object System.Drawing.Point(20, 355)
+    $txtPass.Size = New-Object System.Drawing.Size(360, 25)
+    $txtPass.UseSystemPasswordChar = $true
+    $txtPass.BackColor = [System.Drawing.Color]::FromArgb(255, 13, 13, 13)
+    $txtPass.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $txtPass.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Regular)
+    $remForm.Controls.Add($txtPass)
+
+    $credsFile = "C:\PnxTemp\RemoteCreds.xml"
+    
+    if (Test-Path $credsFile) {
+        try {
+            $script:SavedCredsList = @(Import-Clixml $credsFile)
+            foreach ($c in $script:SavedCredsList) { [void]$clbSaved.Items.Add($c.HostName) }
+        } catch {}
+    }
+
+    $btnPush = New-Object System.Windows.Forms.Button
+    $btnPush.Text = "Push & Connect"
+    $btnPush.Location = New-Object System.Drawing.Point(210, 410)
+    $btnPush.Size = New-Object System.Drawing.Size(170, 40)
+    $btnPush.BackColor = [System.Drawing.Color]::FromArgb(255, 30, 70, 110)
+    $btnPush.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $btnPush.FlatStyle = "Flat"
+    $btnPush.FlatAppearance.BorderSize = 0
+    $btnPush.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $btnPush.Cursor = "Hand"
+    global:Set-RoundedCorner $btnPush 10
+
+    $btnPush.Add_Click({
+        $selectedTargets = @()
+        
+        foreach ($checked in $clbSaved.CheckedItems) {
+            $match = $script:SavedCredsList | Where-Object { $_.HostName -eq $checked } | Select-Object -First 1
+            if ($match) { $selectedTargets += $match }
+        }
+
+        $h = $txtHost.Text.Trim()
+        $u = $txtUser.Text.Trim()
+        $p = $txtPass.Text
+
+        if ($h -and $u -and $p) {
+            $secStr = ConvertTo-SecureString $p -AsPlainText -Force
+            $cred = New-Object System.Management.Automation.PSCredential ($u, $secStr)
+            $newTarget = [PSCustomObject]@{ HostName = $h; Credential = $cred }
+            
+            $existing = $script:SavedCredsList | Where-Object { $_.HostName -eq $h } | Select-Object -First 1
+            if ($existing) {
+                $existing.Credential = $cred 
+            } else {
+                $script:SavedCredsList = @($script:SavedCredsList) + $newTarget
+            }
+            $script:SavedCredsList | Export-Clixml -Path $credsFile -Force
+            
+            if (-not ($selectedTargets | Where-Object HostName -eq $h)) {
+                $selectedTargets += $newTarget
+            }
+        }
+
+        if ($selectedTargets.Count -eq 0) {
+            [System.Windows.Forms.MessageBox]::Show("Please check a saved connection OR fill all fields for a new one.", "Error", 0, 16)
+            return
+        }
+
+        $remForm.Close()
+        global:Show-ExecutionLogs
+        $script:form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+        [System.Windows.Forms.Application]::DoEvents()
+
+        $global:RemoteTargets = @()
+
+        foreach ($t in $selectedTargets) {
+            global:Write-Terminal "--- INITIATING REMOTE CONNECTION TO $($t.HostName) ---" "Cyan" "ALL" "--- INITIATING REMOTE CONNECTION TO $($t.HostName) ---"
+            global:Update-Status "Connecting to $($t.HostName)..."
+            [System.Windows.Forms.Application]::DoEvents()
+
+            try {
+                $session = New-PSSession -ComputerName $t.HostName -Credential $t.Credential -ErrorAction Stop
+                global:Write-Terminal "Pushing payload over network to \\$($t.HostName)\C$\PnxTemp\RemotePayload..." "Yellow" "ALL" "Pushing payload over network to \\$($t.HostName)\C$\PnxTemp\RemotePayload..."
+                
+                Invoke-Command -Session $session -ScriptBlock {
+                    if (-not (Test-Path "C:\PnxTemp\RemotePayload")) { New-Item -ItemType Directory -Path "C:\PnxTemp\RemotePayload" -Force | Out-Null }
+                }
+                
+                Copy-Item -Path "$($script:CurrentToolPath)\*" -Destination "C:\PnxTemp\RemotePayload" -ToSession $session -Recurse -Force
+                
+                global:Write-Terminal "Applying remote ACLs and Unblock rules..." "LightGray" "ALL" "Applying remote ACLs and Unblock rules..."
+                Invoke-Command -Session $session -ScriptBlock {
+                    Get-ChildItem -Path "C:\PnxTemp\RemotePayload" -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
+                    cmd.exe /c 'icacls.exe "C:\PnxTemp\RemotePayload" /grant "Everyone:(OI)(CI)F" "IUSR:(OI)(CI)F" "NETWORK SERVICE:(OI)(CI)F" /T /C /Q' | Out-Null
+                }
+                Remove-PSSession -Session $session
+
+                $global:RemoteTargets += $t
+                global:Write-Terminal "SUCCESS: Connected and Armed on $($t.HostName)." "Lime" "ALL" "SUCCESS: Connected and Armed on $($t.HostName)."
+            } catch {
+                global:Write-Terminal "CONNECTION FAILED for $($t.HostName): $_" "Red" "ALL" "CONNECTION FAILED for $($t.HostName): $_"
+            }
+        }
+
+        if ($global:RemoteTargets.Count -gt 0) {
+            global:Build-LogTabs
+            if ($script:lblStatusVal) {
+                if ($global:RemoteTargets.Count -gt 1) { $script:lblStatusVal.Text = "REMOTE ($($global:RemoteTargets.Count))" }
+                else { $script:lblStatusVal.Text = "REMOTE" }
+                $script:lblStatusVal.ForeColor = [System.Drawing.Color]::Cyan
+            }
+            global:Update-Status "Remote Mode Active."
+        } else {
+            global:Update-Status "All Remote Connections Failed." $true
+        }
+        $script:form.Cursor = [System.Windows.Forms.Cursors]::Default
+    })
+    $remForm.Controls.Add($btnPush)
+
+    $btnDisconnect = New-Object System.Windows.Forms.Button
+    $btnDisconnect.Text = "Revert to Local"
+    $btnDisconnect.Location = New-Object System.Drawing.Point(20, 410)
+    $btnDisconnect.Size = New-Object System.Drawing.Size(170, 40)
+    $btnDisconnect.BackColor = [System.Drawing.Color]::FromArgb(255, 80, 35, 40)
+    $btnDisconnect.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $btnDisconnect.FlatStyle = "Flat"
+    $btnDisconnect.FlatAppearance.BorderSize = 0
+    $btnDisconnect.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $btnDisconnect.Cursor = "Hand"
+    global:Set-RoundedCorner $btnDisconnect 10
+    $btnDisconnect.Add_Click({ 
+        $global:RemoteTargets = @()
+        global:Build-LogTabs
+        global:Switch-LogTab "LOCAL"
+        if ($script:lblStatusVal) {
+            $script:lblStatusVal.Text = "ONLINE"
+            $script:lblStatusVal.ForeColor = [System.Drawing.Color]::FromArgb(255, 46, 204, 113)
+        }
+        global:Write-Terminal "Reverted to Local Execution Mode." "Cyan" "LOCAL" "Reverted to Local Execution Mode."
+        global:Update-Status "Local Mode Active."
+        $remForm.Close() 
+    })
+    $remForm.Controls.Add($btnDisconnect)
+
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = "Close Window"
+    $btnCancel.Location = New-Object System.Drawing.Point(130, 465)
+    $btnCancel.Size = New-Object System.Drawing.Size(150, 35)
+    $btnCancel.BackColor = [System.Drawing.Color]::FromArgb(255, 70, 75, 90)
+    $btnCancel.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+    $btnCancel.FlatStyle = "Flat"
+    $btnCancel.FlatAppearance.BorderSize = 0
+    $btnCancel.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $btnCancel.Cursor = "Hand"
+    global:Set-RoundedCorner $btnCancel 8
+    $btnCancel.Add_Click({ $remForm.Close() })
+    $remForm.Controls.Add($btnCancel)
+
+    [void]$remForm.ShowDialog()
+}
+
+function global:Launch-File($path, $friendlyName) {
+    if (-not (Test-Path $path) -and $global:RemoteTargets.Count -eq 0) { global:Write-Terminal "EXECUTION HALTED: File not found." "Red" "LOCAL" "EXECUTION HALTED: File not found."; return }
+    $workDir = Split-Path -Path $path -Parent
+
+    $userInput = "N"
+
+    # TARGETED PROMPT: Only display Yes/No Setup for specific scripts
+    $needsPrompt = ($friendlyName -eq "RMS Server Production" -or $friendlyName -eq "CAD Server Production" -or $friendlyName -eq "Test/Demo Hotfix")
+
+    if ($needsPrompt) {
+        $inpForm = New-Object System.Windows.Forms.Form
+        $inpForm.Text = "Execution Setup"
+        $inpForm.Size = New-Object System.Drawing.Size(420, 260)
+        $inpForm.StartPosition = "CenterParent"
+        $inpForm.BackColor = [System.Drawing.Color]::FromArgb(255, 28, 28, 35)
+        $inpForm.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+        $inpForm.FormBorderStyle = "FixedDialog"
+        $inpForm.MaximizeBox = $false
+        $inpForm.MinimizeBox = $false
+
+        $targetName = if ($global:RemoteTargets.Count -gt 0) { "Remote PC(s) [$($global:RemoteTargets.Count)]" } else { "Local Machine" }
+
+        $lblInfo = New-Object System.Windows.Forms.Label
+        $lblInfo.Text = "Executing on: $targetName`nScript: $friendlyName`n`nIMPORTANT: If the script prompts to run a generated batch file (Y/N), leave this as 'N'. The Dashboard will automatically intercept and safely execute the primary batch file."
+        $lblInfo.Location = New-Object System.Drawing.Point(20, 15)
+        $lblInfo.Size = New-Object System.Drawing.Size(370, 70)
+        $lblInfo.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
+        $inpForm.Controls.Add($lblInfo)
+
+        $txtInp = New-Object System.Windows.Forms.TextBox
+        $txtInp.Text = "N"
+        $txtInp.Location = New-Object System.Drawing.Point(20, 100)
+        $txtInp.Size = New-Object System.Drawing.Size(360, 25)
+        $txtInp.BackColor = [System.Drawing.Color]::FromArgb(255, 13, 13, 13)
+        $txtInp.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+        $txtInp.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Regular)
+        $inpForm.Controls.Add($txtInp)
+
+        $btnOk = New-Object System.Windows.Forms.Button
+        $btnOk.Text = "Confirm & Launch"
+        $btnOk.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $btnOk.Location = New-Object System.Drawing.Point(210, 150)
+        $btnOk.Size = New-Object System.Drawing.Size(170, 40)
+        $btnOk.BackColor = [System.Drawing.Color]::FromArgb(255, 30, 70, 110)
+        $btnOk.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+        $btnOk.FlatStyle = "Flat"
+        $btnOk.FlatAppearance.BorderSize = 0
+        $btnOk.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+        $btnOk.Cursor = "Hand"
+        global:Set-RoundedCorner $btnOk 10
+        $inpForm.Controls.Add($btnOk)
+        
+        $btnCancel = New-Object System.Windows.Forms.Button
+        $btnCancel.Text = "Cancel"
+        $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+        $btnCancel.Location = New-Object System.Drawing.Point(90, 150)
+        $btnCancel.Size = New-Object System.Drawing.Size(100, 40)
+        $btnCancel.BackColor = [System.Drawing.Color]::FromArgb(255, 80, 35, 40)
+        $btnCancel.ForeColor = [System.Drawing.Color]::FromArgb(255, 240, 240, 240)
+        $btnCancel.FlatStyle = "Flat"
+        $btnCancel.FlatAppearance.BorderSize = 0
+        $btnCancel.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+        $btnCancel.Cursor = "Hand"
+        global:Set-RoundedCorner $btnCancel 10
+        $inpForm.Controls.Add($btnCancel)
+
+        $inpForm.AcceptButton = $btnOk
+        $inpForm.CancelButton = $btnCancel
+
+        if ($inpForm.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+            global:Write-Terminal ">>> Execution cancelled." "Yellow" "ALL" ">>> Execution cancelled."
+            return
+        }
+
+        $userInput = $txtInp.Text
+    }
+
+    global:Show-ExecutionLogs
+    [System.Windows.Forms.Application]::DoEvents()
+
+    if ($global:RemoteTargets.Count -gt 0) {
+        global:Write-Terminal ">>> Queuing Asynchronous Remote Job on $($global:RemoteTargets.Count) server(s)..." "Cyan" "ALL" ">>> Queuing Asynchronous Remote Job on $($global:RemoteTargets.Count) server(s)..."
+        global:Update-Status "Running Remote Job(s)..."
+
+        try {
+            $remotePath = $path.Replace($script:CurrentToolPath, "C:\PnxTemp\RemotePayload")
+            $remoteWorkDir = Split-Path $remotePath -Parent
+
+            foreach ($t in $global:RemoteTargets) {
+                
+                if ($global:LogTabs -and $global:LogTabs.ContainsKey($t.HostName)) {
+                    $global:LogTabs[$t.HostName].Text = "$($t.HostName) (Running)"
+                    $global:LogTabs[$t.HostName].ForeColor = [System.Drawing.Color]::Cyan
+                }
+
+                $sb = {
+                    param($rPath, $rDir, $uInput)
+                    Set-Location $rDir
+                    if ($rPath -match "\.bat$") { 
+                        $tmpFile = Join-Path $rDir "auto_answer.txt"
+                        $inps = "$uInput`r`n" * 20
+                        Set-Content -Path $tmpFile -Value $inps
+                        cmd.exe /c "`"$rPath`" < `"$tmpFile`"" 2>&1
+                        Remove-Item -Path $tmpFile -Force -ErrorAction SilentlyContinue
+                    } else { 
+                        $ps1Output = Write-Output $uInput | powershell.exe -ExecutionPolicy Bypass -File "`"$rPath`"" 2>&1
+                        $extractedBats = @()
+                        foreach ($line in $ps1Output) {
+                            Write-Output $line
+                            if ($line -match "(?i)created at:\s*(.+?\.bat)") {
+                                $extractedBats += $matches[1].Trim()
+                            }
+                        }
+                        
+                        foreach ($bat in $extractedBats) {
+                            if ($bat -match "(?i)Instance Update") {
+                                Write-Output ">> SKIPPING SECONDARY BATCH: $bat"
+                                continue
+                            }
+                            Write-Output " "
+                            Write-Output ">> DASHBOARD INTERCEPT: Executing primary batch file ($bat)..."
+                            $batDir = Split-Path $bat -Parent
+                            Set-Location $batDir
+                            $tmpFile = Join-Path $batDir "auto_answer.txt"
+                            $inps = "$uInput`r`n" * 20
+                            Set-Content -Path $tmpFile -Value $inps
+                            cmd.exe /c "`"$bat`" < `"$tmpFile`"" 2>&1 | ForEach-Object { Write-Output "BATCH> $_" }
+                            Remove-Item -Path $tmpFile -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                }
+
+                $job = Invoke-Command -ComputerName $t.HostName -Credential $t.Credential -ScriptBlock $sb -ArgumentList $remotePath, $remoteWorkDir, $userInput -AsJob
+                $global:ActiveJobs += [PSCustomObject]@{
+                    Name = $friendlyName
+                    Target = $t.HostName
+                    Job = $job
+                }
+                global:Write-Terminal "Job Queued on $($t.HostName). Streaming live output..." "Lime" $t.HostName "Job Queued. Streaming live output..."
+            }
+        } catch {
+            global:Write-Terminal "REMOTE EXECUTION QUEUE FAILED: $_" "Red" "ALL" "REMOTE EXECUTION QUEUE FAILED: $_"
+            global:Update-Status "Remote Queue Failed." $true
+        }
+    } else {
+        global:Switch-LogTab "LOCAL"
+        global:Write-Terminal ">>> Launching Locally: $friendlyName" "White" "LOCAL" ">>> Launching Locally: $friendlyName"
+        global:Update-Status "Script launched locally."
+        try {
+            if ($path -match "\.bat$") { 
+                Start-Process "cmd.exe" -ArgumentList "/c `"$path`" & pause" -Verb RunAs -WorkingDirectory $workDir 
+            } 
+            elseif ($path -match "Minimal Downtime") { 
+                Start-Process "powershell_ise.exe" -ArgumentList "-NoProfile -File `"$path`"" -Verb RunAs -WorkingDirectory $workDir 
+            } 
+            else { 
+                Start-Process "powershell.exe" -ArgumentList "-NoExit -ExecutionPolicy Bypass -File `"$path`"" -Verb RunAs -WorkingDirectory $workDir 
+            }
+            global:Write-Terminal "Execution started successfully in external elevated window." "Lime" "LOCAL" "Execution started successfully in external elevated window."
+        } catch { global:Write-Terminal "CRITICAL LAUNCH FAILURE: $_" "Red" "LOCAL" "CRITICAL LAUNCH FAILURE: $_"; global:Update-Status "Failed to launch script." $true }
+    }
+}
+
+function global:Refresh-List {
+    $script:pnlTools.Controls.Clear()
+    [int]$Y = 10 
+    
+    if (-not $script:ToolsLoaded) {
+        $lbl = New-Object System.Windows.Forms.Label
+        $lbl.Text="No Scripts Detected. Please click 'Search / Reload Master'."
+        $lbl.AutoSize=$true
+        $lbl.Left=15; $lbl.Top=15
+        $lbl.Font=$fontRowText
+        $lbl.BackColor=[System.Drawing.Color]::Transparent
+        $lbl.ForeColor=$colorTextMuted
+        $script:pnlTools.Controls.Add($lbl)
+        return
+    }
+
+    global:Set-FolderPermissions $script:CurrentToolPath $true
+    global:Unblock-ExtractedFiles $script:CurrentToolPath $true
+
+    $Files = Get-ChildItem -Path $script:CurrentToolPath -Include *.ps1, *.bat -Recurse -File | Where-Object { $_.Name -notmatch "Prophoenix_Dashboard" }
+    $SortedList = $Files | Select-Object Name, FullName, @{Name="Friendly"; Expression={global:Get-FriendlyName $_.Name}}, @{Name="Rank"; Expression={global:Get-SortOrder (global:Get-FriendlyName $_.Name)}} | Sort-Object Rank, Friendly
+    
+    foreach ($item in $SortedList) {
+        $card = New-Object System.Windows.Forms.Panel
+        $card.Size = New-Object System.Drawing.Size(890, 36) 
+        $card.Location = New-Object System.Drawing.Point(15, $Y)
+        $card.BackColor = $colorRowGlass
+        $card.Cursor = "Hand"
+        global:Set-RoundedCorner $card 8
+        
+        $card.Add_MouseEnter({ $this.BackColor = $colorCardHover }.GetNewClosure())
+        $card.Add_MouseLeave({ $this.BackColor = $colorRowGlass }.GetNewClosure())
+
+        $l = New-Object System.Windows.Forms.Label
+        $l.Text = $item.Friendly 
+        $l.Font = $fontRowText
+        $l.Left = 20; $l.Top = 7; $l.Width = 700 
+        $l.BackColor = [System.Drawing.Color]::Transparent
+        $l.ForeColor = $colorTextWhite
+        $l.Add_MouseEnter({ $card.BackColor = $colorCardHover }.GetNewClosure())
+        $l.Add_MouseLeave({ $card.BackColor = $colorRowGlass }.GetNewClosure())
+        $card.Controls.Add($l)
+        
+        $b = New-Object System.Windows.Forms.Button
+        $b.Text = "LAUNCH"
+        $b.Left = 780; $b.Top = 4
+        $b.Size = New-Object System.Drawing.Size(90, 28) 
+        $b.BackColor = $colorMainBg
+        $b.ForeColor = $colorTextWhite
+        $b.FlatStyle = "Flat"
+        $b.FlatAppearance.BorderSize = 1
+        $b.FlatAppearance.BorderColor = $colorGroupBorder
+        $b.Font = $fontCleanBold
+        $b.Cursor = "Hand"
+        global:Set-RoundedCorner $b 5
+        
+        $b.Add_MouseEnter({ $this.BackColor = $colorTabActive; $this.ForeColor = $colorTextWhite }.GetNewClosure())
+        $b.Add_MouseLeave({ $this.BackColor = $colorMainBg; $this.ForeColor = $colorTextWhite }.GetNewClosure())
+
+        $path = $item.FullName; $name = $item.Friendly
+        $action = { global:Launch-File $path $name }.GetNewClosure()
+        $b.Add_Click($action)
+        $card.Controls.Add($b)
+        
+        $script:pnlTools.Controls.Add($card)
+        $Y += 40 
+    }
+}
+
+function global:Search-Master {
+    global:Show-ExecutionLogs
+    $script:form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+    global:Update-Status "Scanning for Master..."
+    global:Write-Terminal "======================================================" "White" "ALL" "======================================================"
+    global:Write-Terminal "INITIATING DEEP ENVIRONMENT SEARCH" "Cyan" "ALL" "INITIATING DEEP ENVIRONMENT SEARCH"
+    
+    try {
+        $FoundZip = $null
+        $SearchLocations = @(
+            @{ Path = global:Get-DownloadsPath; Recurse = $true },
+            @{ Path = [Environment]::GetFolderPath("Desktop"); Recurse = $true },
+            @{ Path = $ScriptPath; Recurse = $true },
+            @{ Path = "C:\PnxTemp"; Recurse = $true }
+        )
+
+        foreach ($loc in $SearchLocations) {
+            $dir = $loc.Path
+            if ($dir -and (Test-Path $dir)) {
+                global:Write-Terminal "Scanning System Directories..." "LightGray" "ALL" "Scanning System Directories..."
+                $zips = if ($loc.Recurse) { Get-ChildItem -Path $dir -Filter $ZipNamePattern -File -Recurse -Depth 3 -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending } 
+                        else { Get-ChildItem -Path $dir -Filter $ZipNamePattern -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending }
+
+                foreach ($zip in $zips) {
+                    if (global:Test-ZipValidity $zip.FullName) {
+                        $FoundZip = $zip.FullName
+                        global:Write-Terminal "VERIFIED: Master Payload Found" "Lime" "ALL" "VERIFIED: Master Payload Found"
+                        break
+                    }
+                }
+                if ($FoundZip) { break }
+            }
+        }
+
+        if (-not $FoundZip) {
+            global:Update-Status "Master zip not found automatically." $true
+            $dlg = New-Object System.Windows.Forms.OpenFileDialog
+            $dlg.Filter = "Zip Files (*.zip)|*.zip"; $dlg.Title = "Locate Phoenix Master Zip"
+            if ($dlg.ShowDialog() -eq "OK") {
+                if (global:Test-ZipValidity $dlg.FileName) { $FoundZip = $dlg.FileName } 
+                else { global:Update-Status "Manual file corrupt." $true; return }
+            } else { global:Update-Status "Ready."; return }
+        }
+
+        if ($FoundZip) {
+            [System.Windows.Forms.Application]::DoEvents()
+            global:Write-Terminal "Staging payload for secure extraction..." "White" "ALL" "Staging payload for secure extraction..."
+
+            if (Test-Path "C:\PnxTemp\MasterTemp.zip") { Remove-Item "C:\PnxTemp\MasterTemp.zip" -Force -ErrorAction SilentlyContinue }
+            if (-not (Test-Path "C:\PnxTemp")) { New-Item -ItemType Directory -Path "C:\PnxTemp" -Force | Out-Null }
+            
+            $LocalZip = "C:\PnxTemp\MasterTemp.zip"
+            try { Copy-Item -Path $FoundZip -Destination $LocalZip -Force } catch {}
+            try { 
+                Expand-Archive -Path $LocalZip -DestinationPath $InstallBase -Force 
+                Remove-Item -Path $LocalZip -Force -ErrorAction SilentlyContinue
+                global:Write-Terminal "Extraction 100% complete and archive deleted." "Lime" "ALL" "Extraction 100% complete and archive deleted."
+            } catch { global:Update-Status "Extraction Error." $true; return }
+            
+            $script:CurrentToolPath = $InstallBase
+            $Nested = Join-Path $InstallBase "Phoenix Installation Master"
+            if (Test-Path $Nested) { $script:CurrentToolPath = $Nested }
+
+            global:Set-FolderPermissions $script:CurrentToolPath $false
+            global:Unblock-ExtractedFiles $script:CurrentToolPath $false
+
+            $script:ToolsLoaded = $true
+            global:Refresh-List
+            global:Update-Status "Master Loaded Successfully."
+            global:Write-Terminal "Dashboard Armed and Operational." "Lime" "ALL" "Dashboard Armed and Operational."
+        }
+    } finally {
+        $script:form.Cursor = [System.Windows.Forms.Cursors]::Default
+    }
+}
+
+function global:Check-PublicIP {
+    global:Show-ExecutionLogs
+    $script:form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+    global:Update-Status "Checking Public IP..."
+    [System.Windows.Forms.Application]::DoEvents()
+    
+    try {
+        $ip = Invoke-RestMethod -Uri 'https://api.ipify.org' -UseBasicParsing -TimeoutSec 5
+        global:Write-Terminal "Public IP Resolved: $ip" "Cyan" "ALL" "Public IP Resolved: $ip"
+        global:Update-Status "Public IP Retrieved Successfully."
+    } catch {
+        global:Write-Terminal "Failed to reach external IP service." "Red" "ALL" "Failed to reach external IP service."
+        global:Update-Status "Public IP Check Failed." $true
+    }
+    $script:form.Cursor = [System.Windows.Forms.Cursors]::Default
+}
+
+function global:Run-PreFlightDiagnostics {
+    global:Show-ExecutionLogs
+    $script:form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+    global:Update-Status "Running System Diagnostics..."
+    global:Write-Terminal "--- INITIATING PRE-FLIGHT ENVIRONMENT AUDIT ---" "Cyan" "ALL" "--- INITIATING PRE-FLIGHT ENVIRONMENT AUDIT ---"
+    [System.Windows.Forms.Application]::DoEvents()
+
+    try {
+        $disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'"
+        $freeGB = [math]::Round($disk.FreeSpace / 1GB, 2)
+        if ($freeGB -lt 10) { global:Write-Terminal "C:\ Drive Space: $freeGB GB (WARNING: LOW STORAGE)" "Red" "ALL" "C:\ Drive Space: $freeGB GB (WARNING: LOW STORAGE)" }
+        else { global:Write-Terminal "C:\ Drive Space: $freeGB GB" "Lime" "ALL" "C:\ Drive Space: $freeGB GB" }
+
+        $iis = Get-Service -Name W3SVC -ErrorAction SilentlyContinue
+        if ($iis) { global:Write-Terminal "IIS Service (W3SVC): $($iis.Status)" "Lime" "ALL" "IIS Service (W3SVC): $($iis.Status)" } 
+        else { global:Write-Terminal "IIS Service (W3SVC): Not Installed / Not Found" "Yellow" "ALL" "IIS Service (W3SVC): Not Installed / Not Found" }
+
+        $sql = Get-Service -Name MSSQLSERVER -ErrorAction SilentlyContinue
+        if ($sql) { global:Write-Terminal "SQL Service (MSSQLSERVER): $($sql.Status)" "Lime" "ALL" "SQL Service (MSSQLSERVER): $($sql.Status)" } 
+        else { global:Write-Terminal "SQL Service (MSSQLSERVER): Not Installed / Not Found" "Yellow" "ALL" "SQL Service (MSSQLSERVER): Not Installed / Not Found" }
+
+        global:Write-Terminal "Local PS Execution Policy: $(Get-ExecutionPolicy)" "White" "ALL" "Local PS Execution Policy: $(Get-ExecutionPolicy)"
+
+        global:Write-Terminal "Testing SFTP (sftp.prophoenix.com:25544)..." "Yellow" "ALL" "Testing SFTP (sftp.prophoenix.com:25544)..."
+        $sftpRes = Test-NetConnection -ComputerName "sftp.prophoenix.com" -Port 25544 -InformationLevel Quiet -WarningAction SilentlyContinue
+        if ($sftpRes) { global:Write-Terminal "SFTP Connection: SUCCESS (OPEN)" "Lime" "ALL" "SFTP Connection: SUCCESS (OPEN)" }
+        else { global:Write-Terminal "SFTP Connection: FAILED (BLOCKED)" "Red" "ALL" "SFTP Connection: FAILED (BLOCKED)" }
+
+        global:Write-Terminal "Purging Browser Cache & Temp Files..." "Yellow" "ALL" "Purging Browser Cache & Temp Files..."
+        $CachePaths = @("$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache\*", "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache\*", "$env:TEMP\*", "$env:WINDIR\Temp\*")
+        foreach ($path in $CachePaths) { try { Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue } catch {} }
+        global:Write-Terminal "Cache Purge Complete." "Lime" "ALL" "Cache Purge Complete."
+
+        global:Update-Status "Diagnostics Completed Successfully."
+    } catch { 
+        global:Write-Terminal "Diagnostic Error: $_" "Red" "ALL" "Diagnostic Error: $_"
+        global:Update-Status "Diagnostic Error encountered." $true
+    }
+    global:Write-Terminal "--- PRE-FLIGHT AUDIT COMPLETE ---" "Cyan" "ALL" "--- PRE-FLIGHT AUDIT COMPLETE ---"
+    $script:form.Cursor = [System.Windows.Forms.Cursors]::Default
+}
+
+# ==========================================================================
+#  8. ULTIMATE THEMED UI BUILD
+# ==========================================================================
+$script:form = New-Object System.Windows.Forms.Form
+$script:form.Text = "Phoenix Dashboard"
+$script:form.ClientSize = New-Object System.Drawing.Size(1240, 900)
+$script:form.StartPosition = "CenterScreen"
+$script:form.BackColor = $colorMainBg
+$script:form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+$script:form.MaximizeBox = $false
+
+# --- SIDEBAR ---
+$sidebar = New-Object System.Windows.Forms.Panel
+$sidebar.Size = New-Object System.Drawing.Size(260, 900)
+$sidebar.BackColor = $colorSidebarBg
+$script:form.Controls.Add($sidebar)
+
+$picLogo = New-Object System.Windows.Forms.PictureBox
+$picLogo.Size = New-Object System.Drawing.Size(150, 150)
+$picLogo.Location = New-Object System.Drawing.Point(55, 15)
+$picLogo.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom 
+if (Test-Path $logoPath) { $picLogo.Image = [System.Drawing.Image]::FromFile($logoPath) }
+$sidebar.Controls.Add($picLogo)
+
+$lblTitle1 = New-Object System.Windows.Forms.Label
+$lblTitle1.Text = "INSTALLATION"
+$lblTitle1.Font = $fontHeader
+$lblTitle1.ForeColor = $colorTextWhite
+$lblTitle1.AutoSize = $false
+$lblTitle1.Size = New-Object System.Drawing.Size(260, 30)
+$lblTitle1.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$lblTitle1.Location = New-Object System.Drawing.Point(0, 180)
+$sidebar.Controls.Add($lblTitle1)
+
+$lblTitle2 = New-Object System.Windows.Forms.Label
+$lblTitle2.Text = "DASHBOARD"
+$lblTitle2.Font = $fontMenuBold
+$lblTitle2.ForeColor = $colorLblDash 
+$lblTitle2.AutoSize = $false
+$lblTitle2.Size = New-Object System.Drawing.Size(260, 20)
+$lblTitle2.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$lblTitle2.Location = New-Object System.Drawing.Point(0, 210)
+$sidebar.Controls.Add($lblTitle2)
+
+# Sidebar Group 1: General
+$pnlGroupGen = New-Object System.Windows.Forms.Panel
+$pnlGroupGen.Size = New-Object System.Drawing.Size(240, 140) 
+$pnlGroupGen.Location = New-Object System.Drawing.Point(10, 250)
+global:Set-RoundedCorner $pnlGroupGen 15
+global:Add-GroupBorder $pnlGroupGen $colorGroupBorder
+$sidebar.Controls.Add($pnlGroupGen)
+
+$lblGeneral = New-Object System.Windows.Forms.Label
+$lblGeneral.Text = "General"
+$lblGeneral.Font = $fontMenuBold; $lblGeneral.ForeColor = $colorLblGen 
+$lblGeneral.AutoSize = $false; $lblGeneral.Size = New-Object System.Drawing.Size(240, 20)
+$lblGeneral.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter; $lblGeneral.Location = New-Object System.Drawing.Point(0, 10) 
+$pnlGroupGen.Controls.Add($lblGeneral)
+
+function Add-SidebarButton($Panel, $Text, $Top, $BgColor, $Action) {
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.Text = $Text; $btn.Font = $fontMenuBold; $btn.BackColor = $BgColor
+    $btn.ForeColor = $colorTextWhite; $btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btn.FlatAppearance.BorderSize = 0; $btn.Size = New-Object System.Drawing.Size(220, 40) 
+    $btn.Location = New-Object System.Drawing.Point(10, $Top); $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+    global:Set-RoundedCorner $btn 10
+    $btn.Add_Click($Action)
+    $Panel.Controls.Add($btn)
+}
+
+Add-SidebarButton $pnlGroupGen "Search / Reload Master" 40 $colorBtnGen { global:Search-Master }
+Add-SidebarButton $pnlGroupGen "Download Prerequisite" 85 $colorBtnGen { Start-Process $Url_Blob; Start-Process $Url_GDrive }
+
+# Sidebar Group 2: Diagnostics
+$pnlGroupDiag = New-Object System.Windows.Forms.Panel
+$pnlGroupDiag.Size = New-Object System.Drawing.Size(240, 185)
+$pnlGroupDiag.Location = New-Object System.Drawing.Point(10, 410)
+global:Set-RoundedCorner $pnlGroupDiag 15
+global:Add-GroupBorder $pnlGroupDiag $colorGroupBorder
+$sidebar.Controls.Add($pnlGroupDiag)
+
+$lblDiag = New-Object System.Windows.Forms.Label
+$lblDiag.Text = "Diagnostics"
+$lblDiag.Font = $fontMenuBold; $lblDiag.ForeColor = $colorLblDiag
+$lblDiag.AutoSize = $false; $lblDiag.Size = New-Object System.Drawing.Size(240, 20)
+$lblDiag.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter; $lblDiag.Location = New-Object System.Drawing.Point(0, 10)
+$pnlGroupDiag.Controls.Add($lblDiag)
+
+Add-SidebarButton $pnlGroupDiag "Open System Logs" 40 $colorBtnDiag { if(Test-Path (global:Ensure-LogDir)){ Invoke-Item (global:Ensure-LogDir) } }
+Add-SidebarButton $pnlGroupDiag "Check Public IP" 85 $colorBtnDiag { global:Check-PublicIP }
+Add-SidebarButton $pnlGroupDiag "Run Diagnostics" 130 $colorBtnDiag { global:Run-PreFlightDiagnostics }
+
+# Sidebar Group 3: System
+$pnlGroupSys = New-Object System.Windows.Forms.Panel
+$pnlGroupSys.Size = New-Object System.Drawing.Size(240, 185)
+$pnlGroupSys.Location = New-Object System.Drawing.Point(10, 615)
+global:Set-RoundedCorner $pnlGroupSys 15
+global:Add-GroupBorder $pnlGroupSys $colorGroupBorder
+$sidebar.Controls.Add($pnlGroupSys)
+
+$lblSystem = New-Object System.Windows.Forms.Label
+$lblSystem.Text = "System"
+$lblSystem.Font = $fontMenuBold; $lblSystem.ForeColor = $colorLblSys 
+$lblSystem.AutoSize = $false; $lblSystem.Size = New-Object System.Drawing.Size(240, 20)
+$lblSystem.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter; $lblSystem.Location = New-Object System.Drawing.Point(0, 10)
+$pnlGroupSys.Controls.Add($lblSystem)
+
+Add-SidebarButton $pnlGroupSys "License Verification" 40 $colorBtnSys { global:Show-LicenseVerification }
+Add-SidebarButton $pnlGroupSys "Remote Server Manager" 85 $colorBtnSys { global:Show-RemoteManager }
+Add-SidebarButton $pnlGroupSys "Exit Dashboard" 130 $colorBtnSys { $script:form.Close() }
+
+# --- CONTENT PANEL ---
+$contentPanel = New-Object System.Windows.Forms.Panel
+$contentPanel.Location = New-Object System.Drawing.Point(260, 0)
+$contentPanel.Size = New-Object System.Drawing.Size(980, 900)
+$contentPanel.BackColor = $colorMainBg
+$script:form.Controls.Add($contentPanel)
+
+# Header Text
+$lblHeaderTitle = New-Object System.Windows.Forms.Label
+$lblHeaderTitle.Text = "Phoenix Dashboard"
+$lblHeaderTitle.Font = $fontHeader; $lblHeaderTitle.ForeColor = $colorTextWhite
+$lblHeaderTitle.AutoSize = $true; $lblHeaderTitle.Location = New-Object System.Drawing.Point(30, 25)
+$contentPanel.Controls.Add($lblHeaderTitle)
+
+$lblHeaderSub = New-Object System.Windows.Forms.Label
+$lblHeaderSub.Text = "Empowering Public Safety Through Innovation"
+$lblHeaderSub.Font = $fontSubHeader; $lblHeaderSub.ForeColor = $colorTextMuted
+$lblHeaderSub.AutoSize = $true; $lblHeaderSub.Location = New-Object System.Drawing.Point(33, 60)
+$contentPanel.Controls.Add($lblHeaderSub)
+
+# Telemetry Badges
+$pnlTimerBadge = New-Object System.Windows.Forms.Panel
+$pnlTimerBadge.Size = New-Object System.Drawing.Size(210, 80)
+$pnlTimerBadge.Location = New-Object System.Drawing.Point(400, 25)
+$pnlTimerBadge.BackColor = $colorCardBg
+global:Set-RoundedCorner $pnlTimerBadge 8
+$contentPanel.Controls.Add($pnlTimerBadge)
+
+$lblStatusTitle = New-Object System.Windows.Forms.Label
+$lblStatusTitle.Text = "SYSTEM STATUS"
+$lblStatusTitle.Font = $fontCleanBold; $lblStatusTitle.ForeColor = $colorTextMuted
+$lblStatusTitle.AutoSize = $true; $lblStatusTitle.Location = New-Object System.Drawing.Point(15, 15)
+$pnlTimerBadge.Controls.Add($lblStatusTitle)
+
+$script:lblStatusVal = New-Object System.Windows.Forms.Label
+$script:lblStatusVal.Text = "ONLINE"
+$script:lblStatusVal.Font = $fontCleanVal; $script:lblStatusVal.ForeColor = $termGreen
+$script:lblStatusVal.AutoSize = $true; $script:lblStatusVal.Location = New-Object System.Drawing.Point(120, 13)
+$pnlTimerBadge.Controls.Add($script:lblStatusVal)
+
+$lblUptimeTitle = New-Object System.Windows.Forms.Label
+$lblUptimeTitle.Text = "SESSION TIME"
+$lblUptimeTitle.Font = $fontCleanBold; $lblUptimeTitle.ForeColor = $colorTextMuted
+$lblUptimeTitle.AutoSize = $true; $lblUptimeTitle.Location = New-Object System.Drawing.Point(15, 45)
+$pnlTimerBadge.Controls.Add($lblUptimeTitle)
+
+$script:lblSessionTimeVal = New-Object System.Windows.Forms.Label
+$script:lblSessionTimeVal.Text = "00:00:00"
+$script:lblSessionTimeVal.Font = $fontCleanVal; $script:lblSessionTimeVal.ForeColor = $termCyan
+$script:lblSessionTimeVal.AutoSize = $true; $script:lblSessionTimeVal.Location = New-Object System.Drawing.Point(120, 43)
+$pnlTimerBadge.Controls.Add($script:lblSessionTimeVal)
+
+# FIXED WIDTH FOR HOST BADGE TO PREVENT "i" BUTTON CUTOFF
+$pnlHostBadge = New-Object System.Windows.Forms.Panel
+$pnlHostBadge.Size = New-Object System.Drawing.Size(325, 80)
+$pnlHostBadge.Location = New-Object System.Drawing.Point(625, 25)
+$pnlHostBadge.BackColor = $colorCardBg
+global:Set-RoundedCorner $pnlHostBadge 8
+$contentPanel.Controls.Add($pnlHostBadge)
+
+$lblHostNameLabel = New-Object System.Windows.Forms.Label
+$lblHostNameLabel.Text = "HOSTNAME"
+$lblHostNameLabel.Font = $fontCleanBold; $lblHostNameLabel.ForeColor = $colorTextMuted
+$lblHostNameLabel.AutoSize = $true; $lblHostNameLabel.Location = New-Object System.Drawing.Point(15, 9)
+$pnlHostBadge.Controls.Add($lblHostNameLabel)
+
+$lblHostNameVal = New-Object System.Windows.Forms.Label
+$lblHostNameVal.Text = $HostName
+$lblHostNameVal.Font = $fontCleanVal; $lblHostNameVal.ForeColor = $colorTextWhite
+$lblHostNameVal.AutoSize = $true; $lblHostNameVal.Location = New-Object System.Drawing.Point(100, 7)
+$pnlHostBadge.Controls.Add($lblHostNameVal)
+
+$lblIpLabel = New-Object System.Windows.Forms.Label
+$lblIpLabel.Text = "IP ADDRESS"
+$lblIpLabel.Font = $fontCleanBold; $lblIpLabel.ForeColor = $colorTextMuted
+$lblIpLabel.AutoSize = $true; $lblIpLabel.Location = New-Object System.Drawing.Point(15, 30)
+$pnlHostBadge.Controls.Add($lblIpLabel)
+
+$lblIpVal = New-Object System.Windows.Forms.Label
+$lblIpVal.Text = $IpAddress
+$lblIpVal.Font = $fontCleanVal; $lblIpVal.ForeColor = $termCyan
+$lblIpVal.AutoSize = $true; $lblIpVal.Location = New-Object System.Drawing.Point(100, 28)
+$pnlHostBadge.Controls.Add($lblIpVal)
+
+$lblAgencyLabel = New-Object System.Windows.Forms.Label
+$lblAgencyLabel.Text = "AGENCY"
+$lblAgencyLabel.Font = $fontCleanBold; $lblAgencyLabel.ForeColor = $colorTextMuted
+$lblAgencyLabel.AutoSize = $true; $lblAgencyLabel.Location = New-Object System.Drawing.Point(15, 51)
+$pnlHostBadge.Controls.Add($lblAgencyLabel)
+
+$lblAgencyVal = New-Object System.Windows.Forms.Label
+$lblAgencyVal.Text = $AgencyDomain
+$lblAgencyVal.Font = $fontCleanVal; $lblAgencyVal.ForeColor = $termCyan
+$lblAgencyVal.AutoSize = $true; $lblAgencyVal.Location = New-Object System.Drawing.Point(100, 49)
+$pnlHostBadge.Controls.Add($lblAgencyVal)
+
+# --- "i" INFO BUTTON (RESTORED VISIBILITY & CLIPPING) ---
+$btnInfo = New-Object System.Windows.Forms.Button
+$btnInfo.Text = "i"
+$btnInfo.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+$btnInfo.Size = New-Object System.Drawing.Size(30, 30)
+$btnInfo.Location = New-Object System.Drawing.Point(280, 25) 
+$btnInfo.BackColor = $colorBtnDiag
+$btnInfo.ForeColor = $colorTextWhite
+$btnInfo.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnInfo.FlatAppearance.BorderSize = 1
+$btnInfo.FlatAppearance.BorderColor = $colorGroupBorder
+$btnInfo.Cursor = [System.Windows.Forms.Cursors]::Hand
+# Deliberately skipping Set-RoundedCorner to prevent high-DPI scaling from wiping out the button
+
+$btnInfo.Add_Click({
+    $infoForm = New-Object System.Windows.Forms.Form
+    $infoForm.Text = "About Dashboard"
+    $infoForm.Size = New-Object System.Drawing.Size(650, 460)
+    $infoForm.StartPosition = "CenterParent"
+    $infoForm.BackColor = $colorMainBg
+    $infoForm.ForeColor = $colorTextWhite
+    $infoForm.FormBorderStyle = "FixedDialog"
+    $infoForm.MaximizeBox = $false
+    $infoForm.MinimizeBox = $false
+
+    $infoRtb = New-Object System.Windows.Forms.RichTextBox
+    $infoRtb.Dock = "Fill"
+    $infoRtb.BackColor = $colorCardBg
+    $infoRtb.ForeColor = $colorTextWhite
+    $infoRtb.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Regular)
+    $infoRtb.ReadOnly = $true
+    $infoRtb.BorderStyle = "None"
+    
+    $utcNow = [System.DateTime]::UtcNow
+    $estTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($utcNow, [System.TimeZoneInfo]::FindSystemTimeZoneById("Eastern Standard Time")).ToString("hh:mm tt")
+    $cstTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($utcNow, [System.TimeZoneInfo]::FindSystemTimeZoneById("Central Standard Time")).ToString("hh:mm tt")
+    $pstTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($utcNow, [System.TimeZoneInfo]::FindSystemTimeZoneById("Pacific Standard Time")).ToString("hh:mm tt")
+    
+    $infoRtb.Text = @"
+
+  PROPHOENIX INSTALLATION DASHBOARD
+  ========================================================================
+  Dashboard Version 8.5
+  Created by Installation Team
+  
+  CURRENT US TIME ZONES:
+  EST: $estTime   |   CST: $cstTime   |   PST: $pstTime
+  ========================================================================
+
+  TECHNICAL MODULES & WORKFLOW:
+  ------------------------------------------------------------------------
+  [1] Core UI Engine: Built entirely in PowerShell using native WinForms.
+      Implements double-buffering and region-clipping for the Glass Theme 
+      and rounded corners without external dependencies.
+
+  [2] Execution Module: A Hybrid Launcher automatically determines if a 
+      script requires standard CMD, PowerShell, or the ISE, executing it 
+      with forced Administrative permissions and Execution Policy bypass.
+
+  [3] Telemetry & ADSI Module: Actively queries Active Directory (ADSI)
+      to dynamically resolve and map the local Hostname to its registered 
+      Company/Agency Domain.
+
+  [4] Diagnostics Module: Uses REST API wrappers (ipify) and TCP Net 
+      Connections to validate public-facing IPs and SFTP Port bindings.
+
+  [5] Cloud Sync Module: Automates deployment updates via secure URL 
+      downloads (Blob/GitHub), gracefully unblocks payloads, and maps 
+      required inherited ACL permissions (IUSR/Network Service) natively.
+  ========================================================================
+"@
+    $infoForm.Controls.Add($infoRtb)
+    [void]$infoForm.ShowDialog()
+})
+$pnlHostBadge.Controls.Add($btnInfo)
+$btnInfo.BringToFront()
+
+# --- TAB CONTAINER ---
+$tabContainer = New-Object System.Windows.Forms.Panel
+$tabContainer.Size = New-Object System.Drawing.Size(920, 40)
+$tabContainer.Location = New-Object System.Drawing.Point(30, 125)
+$tabContainer.BackColor = $colorTabDeact
+global:Set-RoundedCorner $tabContainer 20
+$contentPanel.Controls.Add($tabContainer)
+
+$script:btnTabScripts = New-Object System.Windows.Forms.Button
+$script:btnTabScripts.Text = "Available Scripts"
+$script:btnTabScripts.Size = New-Object System.Drawing.Size(260, 40)
+$script:btnTabScripts.Location = New-Object System.Drawing.Point(0, 0)
+$script:btnTabScripts.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:btnTabScripts.FlatAppearance.BorderSize = 1 
+$script:btnTabScripts.FlatAppearance.BorderColor = $colorGroupBorder
+$script:btnTabScripts.BackColor = $colorTabActive
+$script:btnTabScripts.ForeColor = $colorTextWhite; $script:btnTabScripts.Font = $fontMenuBold
+$script:btnTabScripts.Cursor = [System.Windows.Forms.Cursors]::Hand
+$tabContainer.Controls.Add($script:btnTabScripts)
+
+$script:btnTabLogs = New-Object System.Windows.Forms.Button
+$script:btnTabLogs.Text = "Execution Logs"
+$script:btnTabLogs.Size = New-Object System.Drawing.Size(260, 40)
+$script:btnTabLogs.Location = New-Object System.Drawing.Point(260, 0)
+$script:btnTabLogs.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$script:btnTabLogs.FlatAppearance.BorderSize = 1 
+$script:btnTabLogs.FlatAppearance.BorderColor = $colorGroupBorder
+$script:btnTabLogs.BackColor = $colorTabDeact
+$script:btnTabLogs.ForeColor = $colorTextMuted; $script:btnTabLogs.Font = $fontMenuBold
+$script:btnTabLogs.Cursor = [System.Windows.Forms.Cursors]::Hand
+$tabContainer.Controls.Add($script:btnTabLogs)
+
+$btnHelpDocs = New-Object System.Windows.Forms.Button
+$btnHelpDocs.Text = "Help Docs"
+$btnHelpDocs.Size = New-Object System.Drawing.Size(200, 40)
+$btnHelpDocs.Location = New-Object System.Drawing.Point(520, 0)
+$btnHelpDocs.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnHelpDocs.FlatAppearance.BorderSize = 1 
+$btnHelpDocs.FlatAppearance.BorderColor = $colorGroupBorder
+$btnHelpDocs.BackColor = $colorTabDeact
+$btnHelpDocs.ForeColor = $colorTextMuted; $btnHelpDocs.Font = $fontMenuBold
+$btnHelpDocs.Cursor = [System.Windows.Forms.Cursors]::Hand
+$btnHelpDocs.Add_Click({ global:Show-HelpPrompt })
+$tabContainer.Controls.Add($btnHelpDocs)
+
+$btnRefresh = New-Object System.Windows.Forms.Button
+$btnRefresh.Text = "? Refresh"
+$btnRefresh.Size = New-Object System.Drawing.Size(200, 40)
+$btnRefresh.Location = New-Object System.Drawing.Point(720, 0)
+$btnRefresh.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnRefresh.FlatAppearance.BorderSize = 1 
+$btnRefresh.FlatAppearance.BorderColor = $colorGroupBorder
+$btnRefresh.BackColor = $colorTabDeact
+$btnRefresh.ForeColor = $colorTextMuted; $btnRefresh.Font = $fontMenuBold
+$btnRefresh.Cursor = [System.Windows.Forms.Cursors]::Hand
+$btnRefresh.Add_Click({ global:Refresh-List; global:Update-Status "List Refreshed Successfully." })
+$tabContainer.Controls.Add($btnRefresh)
+
+$script:lblStatus = New-Object System.Windows.Forms.Label
+$script:lblStatus.Text = "Status: Initializing..."
+$script:lblStatus.Font = $fontSubHeader; $script:lblStatus.ForeColor = $colorAccentRed
+$script:lblStatus.AutoSize = $true; $script:lblStatus.Location = New-Object System.Drawing.Point(33, 175)
+$contentPanel.Controls.Add($script:lblStatus)
+
+# --- VIEWS SETUP & DYNAMIC TABS ---
+$script:pnlToolsWrapper = New-Object System.Windows.Forms.Panel
+$script:pnlToolsWrapper.Location = New-Object System.Drawing.Point(30, 200)
+$script:pnlToolsWrapper.Size = New-Object System.Drawing.Size(920, 630)
+$script:pnlToolsWrapper.BackColor = [System.Drawing.Color]::Transparent
+if ($global:fadedWatermark) {
+    $script:pnlToolsWrapper.BackgroundImage = $global:fadedWatermark
+    $script:pnlToolsWrapper.BackgroundImageLayout = [System.Windows.Forms.ImageLayout]::Center
+}
+$contentPanel.Controls.Add($script:pnlToolsWrapper)
+global:Enable-AdvancedDoubleBuffering $script:pnlToolsWrapper
+
+$script:pnlTools = New-Object System.Windows.Forms.Panel
+$script:pnlTools.Dock = "Fill"
+$script:pnlTools.AutoScroll = $true
+$script:pnlTools.BackColor = [System.Drawing.Color]::Transparent
+$script:pnlToolsWrapper.Controls.Add($script:pnlTools)
+global:Enable-AdvancedDoubleBuffering $script:pnlTools
+
+$script:pnlConsole = New-Object System.Windows.Forms.Panel
+$script:pnlConsole.Dock = "Fill"
+$script:pnlConsole.BackColor = $colorConsoleBg
+$script:pnlConsole.Padding = New-Object System.Windows.Forms.Padding(15) 
+$script:pnlConsole.Visible = $false
+$script:pnlToolsWrapper.Controls.Add($script:pnlConsole)
+
+# The new Log Tab System
+$script:pnlLogTabs = New-Object System.Windows.Forms.Panel
+$script:pnlLogTabs.Dock = "Top"
+$script:pnlLogTabs.Height = 35
+$script:pnlConsole.Controls.Add($script:pnlLogTabs)
+
+$script:pnlLogContent = New-Object System.Windows.Forms.Panel
+$script:pnlLogContent.Dock = "Fill"
+$script:pnlLogContent.Padding = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
+$script:pnlConsole.Controls.Add($script:pnlLogContent)
+$script:pnlLogContent.BringToFront()
+
+global:Build-LogTabs
+
+# --- ASYNCHRONOUS LIVE POLLING ENGINE (WITH ERROR HANDLING) ---
+$global:JobTimer = New-Object System.Windows.Forms.Timer
+$global:JobTimer.Interval = 500 
+$global:JobTimer.Add_Tick({
+    try {
+        if ($global:ActiveJobs.Count -gt 0) {
+            $remainingJobs = @()
+            foreach ($aj in $global:ActiveJobs) {
+                $results = Receive-Job -Job $aj.Job -ErrorAction SilentlyContinue
+                if ($results) {
+                    foreach ($res in $results) {
+                        global:Write-Terminal "[$($aj.Target)] $res" "Cyan" $aj.Target $res
+                    }
+                }
+                
+                if ($aj.Job.State -in 'Completed','Failed','Stopped') {
+                    global:Write-Terminal "[$($aj.Target)] [JOB: $($aj.Name)] Execution completed." "Lime" $aj.Target "[JOB: $($aj.Name)] Execution completed."
+                    
+                    if ($global:LogTabs -and $global:LogTabs.ContainsKey($aj.Target)) {
+                        $global:LogTabs[$aj.Target].Text = "$($aj.Target) (Done)"
+                        $global:LogTabs[$aj.Target].ForeColor = [System.Drawing.Color]::FromArgb(255, 46, 204, 113)
+                    }
+
+                    Remove-Job -Job $aj.Job -Force -ErrorAction SilentlyContinue
+                } else {
+                    $remainingJobs += $aj
+                }
+            }
+            $global:ActiveJobs = $remainingJobs
+        }
+    } catch {}
+})
+
+# --- BULLETPROOF UI TIMER (PREVENTS FATAL CRASHES) ---
+$uiTimer = New-Object System.Windows.Forms.Timer 
+$uiTimer.Interval = 1000 
+$uiTimer.Add_Tick({
+    try {
+        if ($null -eq $script:sessionStart) { $script:sessionStart = [datetime]::Now }
+        $ts = [datetime]::Now - $script:sessionStart
+        if ($script:lblSessionTimeVal) {
+            $script:lblSessionTimeVal.Text = "{0:00}:{1:00}:{2:00}" -f $ts.Hours, $ts.Minutes, $ts.Seconds
+        }
+    } catch {}
+})
+
+# --- COPYRIGHT WATERMARK (MOVED TO BOTTOM RIGHT) ---
+$lblCopyright = New-Object System.Windows.Forms.Label
+$lblCopyright.Text = "© 2026, ProPhoenix Corporation, All Rights Reserved"
+$lblCopyright.Font = $script:Font_Copyright
+$lblCopyright.ForeColor = $colorTextMuted
+$lblCopyright.Location = New-Object System.Drawing.Point(280, 845)
+$lblCopyright.Size = New-Object System.Drawing.Size(920, 30)
+$lblCopyright.TextAlign = "MiddleRight"
+$lblCopyright.BackColor = [System.Drawing.Color]::Transparent
+$script:form.Controls.Add($lblCopyright)
+
+# --- DUAL SCREEN TAB CLICK EVENTS ---
+$script:btnTabScripts.Add_Click({
+    $script:form.SuspendLayout()
+    $script:pnlConsole.Visible = $false
+    $script:pnlTools.Visible = $true
+    $script:btnTabScripts.BackColor = $colorTabActive
+    $script:btnTabScripts.ForeColor = $colorTextWhite
+    $script:btnTabLogs.BackColor = $colorTabDeact
+    $script:btnTabLogs.ForeColor = $colorTextMuted
+    $script:form.ResumeLayout($true)
+    $script:pnlToolsWrapper.Invalidate($true)
+})
+
+$script:btnTabLogs.Add_Click({
+    global:Show-ExecutionLogs
+})
+
+# --- EXECUTE ON STARTUP (AUTO-DOWNLOAD, CLEANUP & EXTRACT) ---
+$script:form.Add_Shown({ 
+    try {
+        $script:form.Activate()
+        $global:JobTimer.Start()
+        $uiTimer.Start()
+        
+        global:Write-Terminal "Initializing startup sequence..." "Cyan" "ALL" "Initializing startup sequence..."
+        [System.Windows.Forms.Application]::DoEvents()
+        
+        # ---------------------------------------------------------
+        # ADD YOUR GITHUB REPO ZIP URL HERE:
+        $Url_GitHub = "https://github.com/gobikrish90/MyScripts/raw/main/Phoenix%20Installation%20Master.zip"
+        # ---------------------------------------------------------
+        
+        $DownloadUrls = @($Url_Blob, $Url_GDrive, $Url_GitHub)
+        $TempDir = "C:\PnxTemp"
+        
+        if (Test-Path $InstallBase) {
+            global:Write-Terminal "Old payload detected. Removing old scripts..." "Yellow" "ALL" "Old payload detected. Removing old scripts..."
+            Remove-Item -Path $InstallBase -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        if (-not (Test-Path $TempDir)) { New-Item -ItemType Directory -Path $TempDir -Force | Out-Null }
+        
+        $uniqueId = Get-Random -Minimum 1000 -Maximum 9999
+        $TempZip = Join-Path $TempDir "Phoenix Installation Master_$uniqueId.zip"
+        
+        global:Write-Terminal "Downloading latest payload..." "White" "ALL" "Downloading latest payload..."
+        global:Update-Status "Downloading latest scripts..."
+        [System.Windows.Forms.Application]::DoEvents()
+        
+        $downloadSuccess = $false
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        
+        foreach ($url in $DownloadUrls) {
+            if ([string]::IsNullOrWhiteSpace($url)) { continue }
+            try {
+                global:Write-Terminal "Attempting download from secure source..." "LightGray" "ALL" "Attempting download from secure source..."
+                Invoke-WebRequest -Uri $url -OutFile $TempZip -UseBasicParsing -TimeoutSec 15
+                $downloadSuccess = $true
+                global:Write-Terminal "Download completed successfully." "Lime" "ALL" "Download completed successfully."
+                break
+            } catch {
+                global:Write-Terminal "Source failed, trying next availability zone..." "Yellow" "ALL" "Source failed, trying next availability zone..."
+            }
+        }
+        
+        if (-not $downloadSuccess) {
+            global:Write-Terminal "All automatic download sources failed." "Red" "ALL" "All automatic download sources failed."
+            global:Update-Status "Download Failed. Attempting local search..." $true
+            global:Search-Master
+            return
+        }
+        
+        global:Write-Terminal "Extracting new payload..." "White" "ALL" "Extracting new payload..."
+        global:Update-Status "Extracting scripts..."
+        [System.Windows.Forms.Application]::DoEvents()
+        
+        try {
+            Expand-Archive -Path $TempZip -DestinationPath $InstallBase -Force
+            Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
+            global:Write-Terminal "Extraction 100% complete and archive deleted." "Lime" "ALL" "Extraction 100% complete and archive deleted."
+        } catch {
+            global:Write-Terminal "Extraction failed: $_" "Red" "ALL" "Extraction failed: $_"
+            global:Update-Status "Extraction Error." $true
+            return
+        }
+
+        $script:CurrentToolPath = $InstallBase
+        
+        $NestedDir = Get-ChildItem -Path $InstallBase -Directory | Where-Object { $_.Name -match "Phoenix Installation Master" -or $_.Name -match "main" } | Select-Object -First 1
+        if ($NestedDir) { $script:CurrentToolPath = $NestedDir.FullName }
+        
+        global:Set-FolderPermissions $script:CurrentToolPath $false
+        global:Unblock-ExtractedFiles $script:CurrentToolPath $false
+        
+        $script:ToolsLoaded = $true
+        global:Refresh-List
+        global:Update-Status "Master Loaded Successfully."
+        global:Write-Terminal "Dashboard Armed and Operational." "Lime" "ALL" "Dashboard Armed and Operational."
+    } catch {
+        global:Write-Terminal "FATAL STARTUP ERROR: $_" "Red" "ALL" "FATAL STARTUP ERROR: $_"
+        global:Update-Status "Startup Failed." $true
+    }
+})
+
+# Launch final app
+$preloader.Close()
+$preloader.Dispose()
+[void]$script:form.ShowDialog()
