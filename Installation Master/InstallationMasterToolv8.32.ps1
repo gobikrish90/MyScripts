@@ -675,12 +675,12 @@ function global:Execute-ScheduledJob($job) {
         $wContent += "    echo [SYS] Found batch file: %%F >> `"$remoteLog`"`r`n"
         $wContent += "    cmd.exe /c `"`"$remoteWorkDir\%%F`"`" < `"$ansPath`" >> `"$remoteLog`" 2>&1`r`n"
         $wContent += ")`r`n"
+        $wContent += "timeout /t 3 /nobreak >nul`r`n"
         $wContent += "echo [SYS] Scheduled Task Completed. >> `"$remoteLog`"`r`n"
         $wContent += "echo [SYS] Syncing Output Logs and Screenshots... >> `"$remoteLog`"`r`n"
         $wContent += "if not exist `"$remoteLoadsDir`" mkdir `"$remoteLoadsDir`"`r`n"
         $wContent += "if exist `"$printLogDir\*`" xcopy /E /I /Y `"$printLogDir\*`" `"$remoteLoadsDir\`" >> `"$remoteLog`" 2>&1`r`n"
-        $wContent += "xcopy /Y `"$remoteWorkDir\*.png`" `"$remoteLoadsDir\`" >> `"$remoteLog`" 2>&1`r`n"
-        $wContent += "xcopy /Y `"$remoteWorkDir\*.jpg`" `"$remoteLoadsDir\`" >> `"$remoteLog`" 2>&1`r`n"
+        $wContent += "for /R `"$remoteWorkDir`" %%f in (*.png *.jpg) do copy /Y `"%%f`" `"$remoteLoadsDir\`" >> `"$remoteLog`" 2>&1`r`n"
         $wContent += "del `"$ansPath`" /Q >nul 2>&1`r`n"
         $wContent += "schtasks /delete /tn `"$taskName`" /f >> `"$remoteLog`" 2>&1"
 
@@ -958,13 +958,15 @@ function global:Launch-RemoteBat($HostName, $Cred, $BatPath, $UserInput) {
         }
         while (-not $proc.StandardOutput.EndOfStream) { Write-Output $proc.StandardOutput.ReadLine() }
 
+        Start-Sleep -Seconds 3 # Give disk time to finish saving the screenshots
         $printLogDir = Join-Path $bDir "Printlog"
         $remoteLoadsDir = "C:\PnxTemp\RemotePayloads"
         if (-not (Test-Path $remoteLoadsDir)) { New-Item -ItemType Directory -Path $remoteLoadsDir -Force | Out-Null }
         
-        # Copy Logs and Screenshots to Payload Location
-        Copy-Item -Path "$bDir\*.png" -Destination $remoteLoadsDir -Force -ErrorAction SilentlyContinue
-        Copy-Item -Path "$bDir\*.jpg" -Destination $remoteLoadsDir -Force -ErrorAction SilentlyContinue
+        # Deep Recursive Search for screenshots
+        Get-ChildItem -Path $bDir -Filter "*.png" -Recurse -ErrorAction SilentlyContinue | Copy-Item -Destination $remoteLoadsDir -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $bDir -Filter "*.jpg" -Recurse -ErrorAction SilentlyContinue | Copy-Item -Destination $remoteLoadsDir -Force -ErrorAction SilentlyContinue
+        
         if (Test-Path $printLogDir) {
             Copy-Item -Path "$printLogDir\*" -Destination $remoteLoadsDir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -1090,11 +1092,18 @@ function global:Launch-File($path, $friendlyName) {
                         if ($l -match "(?i)created at:\s*(.+?\.bat)") { Write-Output "[BATCH_DETECTED]|$($matches[1].Trim())" }
                     }
 
+                    Start-Sleep -Seconds 3 # Give disk time to finish saving the screenshots
                     $remoteLoadsDir = "C:\PnxTemp\RemotePayloads"
                     if (-not (Test-Path $remoteLoadsDir)) { New-Item -ItemType Directory -Path $remoteLoadsDir -Force | Out-Null }
-                    Copy-Item -Path "$rDir\*.png" -Destination $remoteLoadsDir -Force -ErrorAction SilentlyContinue
-                    Copy-Item -Path "$rDir\*.jpg" -Destination $remoteLoadsDir -Force -ErrorAction SilentlyContinue
-                    if (Test-Path "$rDir\Printlog") { Copy-Item -Path "$rDir\Printlog\*" -Destination $remoteLoadsDir -Recurse -Force -ErrorAction SilentlyContinue }
+                    
+                    # Deep Recursive Search for screenshots
+                    Get-ChildItem -Path $rDir -Filter "*.png" -Recurse -ErrorAction SilentlyContinue | Copy-Item -Destination $remoteLoadsDir -Force -ErrorAction SilentlyContinue
+                    Get-ChildItem -Path $rDir -Filter "*.jpg" -Recurse -ErrorAction SilentlyContinue | Copy-Item -Destination $remoteLoadsDir -Force -ErrorAction SilentlyContinue
+                    
+                    if (Test-Path "$rDir\Printlog") { 
+                        Copy-Item -Path "$rDir\Printlog\*" -Destination $remoteLoadsDir -Recurse -Force -ErrorAction SilentlyContinue 
+                    }
+                    Write-Output ">> [SYS] Base script sync complete: Screenshots and logs copied."
                 }
 
                 $job = Invoke-Command -ComputerName $t.HostName -Credential $t.Credential -ScriptBlock $sb -ArgumentList $remotePath, $remoteWorkDir -AsJob
@@ -2958,5 +2967,6 @@ $script:form.Add_Shown({
 $preloader.Close()
 $preloader.Dispose()
 [void]$script:form.ShowDialog()
+
 
 
