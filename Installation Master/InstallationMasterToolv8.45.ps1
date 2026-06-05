@@ -1,12 +1,7 @@
 <#
 .SYNOPSIS
     Installation Master Dashboard v12.0 (Enterprise Deep-Hunt Framework)
-    - FEATURE: Isolated AutoPipeline Logic with DB Sync & Hotfix Injectors.
-    - BUGFIX: Deep System Hunt locates batch files generated outside the working directory.
-    - BUGFIX: Cured WinRM Detached Process Deadlock by synchronously forcing cmd.exe.
-    - BUGFIX: Dynamic Patching suppresses headless GUI Exceptions (CopyFromScreen).
-    - BUGFIX: Explicitly targets and destroys Update(BS).bat across all remote Temp folders.
-#>
+ #>
 
 # ==============================================================================
 #  0. INSTANT BACKGROUND CONSOLE HIDE
@@ -413,7 +408,7 @@ function global:Get-FriendlyName($fileName) {
     if ($fileName -match "SQLMemory") { return "SQL Memory Set" }
     if ($fileName -match "InstanceVerification") { return "Instance Update Verification" }
     if ($fileName -match "LaunchShortcuts") { return "Clients Auto Update" }
-    if ($fileName -match "Autodbsync" -or $fileName -match "DB Sync") { return "DB Sync Tool" }
+    if ($fileName -match "Autodbsync" -or $fileName -match "DB Utility Dashboard") { return "DB Sync Tool" }
     if ($fileName -match "RMS" -and $fileName -match "PD") { return "RMS Server Production" }
     if ($fileName -match "Cad_Hotfix" -or $fileName -match "CAD PD" -or ($fileName -match "CAD" -and $fileName -match "PD")) { return "CAD Server Production" }
     if ($fileName -match "Autodefined" -or $fileName -match "Test-DemoHotfix" -or ($fileName -match "Demo" -and $fileName -match "Test")) { return "Test/Demo Hotfix" }
@@ -2364,3 +2359,4 @@ if ($null -ne $script:form) {
     Write-Host "CRITICAL ERROR: Form not initialized. Review script brackets." -ForegroundColor Red
     pause 
 }
+
