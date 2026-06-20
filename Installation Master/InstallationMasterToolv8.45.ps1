@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Installation Master Dashboard v12.0 (Enterprise Deep-Hunt Framework)
+    Installation Master Dashboard v8.45 (Enterprise Deep-Hunt Framework)
  #>
 
 # ==============================================================================
@@ -2359,5 +2359,6 @@ if ($null -ne $script:form) {
     Write-Host "CRITICAL ERROR: Form not initialized. Review script brackets." -ForegroundColor Red
     pause 
 }
+
 
 
