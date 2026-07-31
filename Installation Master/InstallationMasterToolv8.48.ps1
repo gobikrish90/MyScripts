@@ -2291,7 +2291,7 @@ if ($null -ne $script:form) {
             global:Write-Terminal "Initializing startup sequence..." "Cyan" "ALL"
             [System.Windows.Forms.Application]::DoEvents()
             
-            $Url_GitHub = "https://github.com/gobikrish90/MyScripts/raw/main/Phoenix%20Installation%20Master_20260731_1450.zip"
+            $Url_GitHub = "https://github.com/gobikrish90/MyScripts/raw/main/Phoenix%20Installation%20Master_20260731_1454.zip"
             $Url_GDrive = "https://drive.google.com/uc?export=download&id=10RxuJaWwqR1S6lbkjL0-_AXddCwOARYI"
             $DownloadUrls = @($Url_GitHub, $Url_GDrive)
             $TempDir = "C:\PnxTemp"
@@ -2399,3 +2399,4 @@ if ($null -ne $script:form) {
     Write-Host "CRITICAL ERROR: Form not initialized. Review script brackets." -ForegroundColor Red
     pause 
 }
+
